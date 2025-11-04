@@ -591,5 +591,3 @@ class Database:
         from queries.get_onstream_pod_upstream_diverters import get_onstream_pod_upstream_diverters_query
         result = self.execute_as_dict(get_onstream_pod_upstream_diverters_query, args=args)
         return result
-
-# Test SYNCING
