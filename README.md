@@ -11,7 +11,6 @@ The following is the directory structure of this repository. The "api" folder re
 │   ├── routers
 │   ├── utils
 │   └── database.py
-├── documentation
 └── stored_procedures
 
 ```
@@ -66,10 +65,6 @@ The database.py and db_utils.py files define interactions with the postgreSQL da
 2. Through a postgresSQL stored procedure - these are stored in the database
 
 See the `stored_procedures` section below for more information about stored procedures.
-
-## Documentation
-
-The Documentation included in the tool is included here for reference and context about any calculations performed. This documentation can be a useful first step in viewing the functionality and can be a touchstone when viewing code as to the "bigger picture" of what the code is trying to accomplish.
 
 ## Stored Procedures
 
