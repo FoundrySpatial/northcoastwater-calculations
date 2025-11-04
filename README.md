@@ -1,4 +1,4 @@
-# northcoastwater-calculations
+# North Coast Water Availability Tool Calculations
 Calculation Files For the California North Coast Water Availability Tool (northcoastwater.codefornature.org). Contained within here is all of the logic used within the tool to generate Water Supply Reports and Cumulative Diversion Analyses.
 
 ## Directory structure:
