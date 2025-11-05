@@ -49,12 +49,12 @@ The routers folder under /api/routers defines the routes (api endpoints) of the 
 
 The routers are as follows:
 
-1. gages.py - Get gage date from USGS gauges
-2. points_of_diversion.py - get data about existing points of diversion in the north coast area
+1. gages.py - Get gage data from USGS gauges in the tool
+2. points_of_diversion.py - get data about existing points of diversion (water rights) in the north coast area
 3. projects.py - perform project-specific handling of data such as generating project output files and tables viewed in the tool
 4. search.py - search functionality for maps
-5. stream_reach.py - get stream reach data and verify it is in the correct area
-6. streampaths.py - get streampath data and verify it is in the correct area
+5. stream_reach.py - get stream reach data and perform verifications
+6. streampaths.py - get streampath data and perform verifications
 7. watersheds.py - get watersheds information from streams
 
 ### Database
