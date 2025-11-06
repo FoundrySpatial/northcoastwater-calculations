@@ -30,5 +30,3 @@ def get_search_distance(zoom_level):
     if (zoom_level >= 0):
         return tile_length_pixels * meters_per_pixel[zoom_level]
     return None
-
-# Test syncing behavior!
