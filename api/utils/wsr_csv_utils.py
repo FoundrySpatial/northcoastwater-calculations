@@ -15,6 +15,8 @@ from shapely.geometry import Point, Polygon
 from psycopg2.extras import RealDictRow
 # import matplotlib.pyplot as plt
 
+AFD_TO_CFS = 1.5125/3
+
 MONTH_TO_NUMBER = {
     'Jan': 1,
     'Feb': 2,
@@ -1326,6 +1328,8 @@ def generate_gage_timeseries_seasonal_means(raw_gage_timeseries, diversion_seaso
                         )
 
     gage_df = gage_df[boolean_series]
+    # Output data is in Acre-feet per day. Convert the units here
+    gage_df['daily_flow'] = gage_df['daily_flow'] / AFD_TO_CFS
     # Return the average for each water year, and the overall average
     return (gage_df.groupby('water_year').sum(numeric_only=True).to_dict(), gage_df['daily_flow'].sum(numeric_only=True)/(gage_df['water_year'].nunique()))
 
