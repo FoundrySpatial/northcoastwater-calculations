@@ -685,7 +685,7 @@ def plot_and_find_instantaneous_peak_flow(peaks, recurrence_intervals):
 
 def convert_date_to_index(date):
     #Using mod 365 in case there is an end date after october 1
-    return (date-datetime(2018, 10, 1)).days % 365
+    return (date-dt_date(2018, 10, 1)).days % 365
 
 def generate_yearly_ts_from_row(row):
     """
@@ -698,14 +698,14 @@ def generate_yearly_ts_from_row(row):
     if(row['days_of_storage'] != None and row['days_of_storage'] > 0):
         if(row['overlapping_days_of_storage_and_policy_season'] > 0):
             #Assume all storage happens in the policy season if overlap
-            storage_start = datetime.strptime(row['storage_season_start'], "%d-%m-%Y")
-            storage_end = datetime.strptime(row['storage_season_end'], "%d-%m-%Y")
+            storage_start = datetime.strptime(row['storage_season_start'], "%d-%m-%Y").date()
+            storage_end = datetime.strptime(row['storage_season_end'], "%d-%m-%Y").date()
             both_sides_of_policy_season_case = storage_start.year != policy_season.start.year and storage_end > (policy_season.start.replace(year=2019))
             two_seasons=False
             if(both_sides_of_policy_season_case):
                 #This case indicates that we have a storage season that starts at the start of one year and continues into the storage season of the next year
                 #In this case, unless we have a full 12 months, we will need two seasons to bridge the gap
-                is_full_year = storage_start == datetime(2019, 1, 1) and storage_end == datetime(2019, 12, 31)
+                is_full_year = storage_start == datetime(2019, 1, 1).date() and storage_end == datetime(2019, 12, 31).date()
                 if(is_full_year):
                     start_date = policy_season.start
                     end_date = policy_season.end + timedelta(days=1)
@@ -751,8 +751,8 @@ def generate_yearly_ts_from_row(row):
                     total_demand[year_index] = total_demand[year_index] + storage_per_day
         else:
             #All storage outside of policy season, just use storage start and end dates (ezpz)
-            storage_start = datetime.strptime(row['storage_season_start'], "%d-%m-%Y")
-            storage_end = datetime.strptime(row['storage_season_end'], "%d-%m-%Y")
+            storage_start = datetime.strptime(row['storage_season_start'], "%d-%m-%Y").date()
+            storage_end = datetime.strptime(row['storage_season_end'], "%d-%m-%Y").date()
             storage_delta = (storage_end-storage_start).days
             storage_per_day = row['max_storage_af']/storage_delta
             first_index = convert_date_to_index(storage_start)
@@ -769,7 +769,7 @@ def generate_yearly_ts_from_row(row):
         if("Irrigation" in use_codes and len(use_codes) in [1,2] and all(use_code in ['Frost Protection', 'Irrigation'] for use_code in use_codes)):
             #Irrigation case - assume diversion happens OUTSIDE of policy season
             diversion_days_outside_of_policy = int(row['days_of_diversion']) - row['overlapping_days_of_direct_diversion_and_policy_season']
-            diversion_start = datetime.strptime(row['direct_div_season_start'], "%d-%m-%Y")
+            diversion_start = datetime.strptime(row['direct_div_season_start'], "%d-%m-%Y").date()
             if(policy_season.end > diversion_start and diversion_start > policy_season.start):
                 #Start the day after the policy season ends
                 start_date = policy_season.end + timedelta(days=1)
@@ -781,7 +781,7 @@ def generate_yearly_ts_from_row(row):
                 total_demand[year_index] = total_demand[year_index] + row['diversion_per_day_af']
         else:
             #Constant over diversion season
-            diversion_start = datetime.strptime(row['direct_div_season_start'], "%d-%m-%Y")
+            diversion_start = datetime.strptime(row['direct_div_season_start'], "%d-%m-%Y").date()
             first_index = convert_date_to_index(diversion_start)
             for i in range(int(row['days_of_diversion'])):
                 year_index = (i+first_index) % 365
@@ -792,23 +792,31 @@ def generate_yearly_ts_from_row(row):
         if(row['max_storage_af'] == row['face_amount_af'] and row['overlapping_days_of_storage_and_policy_season'] > 0):
             # Max Storage and Face amount are equal -> assume this means that all diversions go to storage
             # This implies that the frost diversions would happen in the policy season if storage is in policy season
-            frost_range = Range(start=pd.to_datetime(
-                '15-03-2019', dayfirst=True), end=pd.to_datetime('31-03-2019', dayfirst=True))
-            storage_range = Range(start=pd.to_datetime(
-                row["storage_season_start"], dayfirst=True), end=pd.to_datetime(row["storage_season_end"], dayfirst=True))
+            frost_range = Range(
+                start=dt_date(2019, 3, 15),
+                end=dt_date(2019, 3, 31)
+            )
+            storage_range = Range(
+                start=datetime.strptime(row["storage_season_start"], "%d-%m-%Y").date(),
+                end=datetime.strptime(row["storage_season_end"], "%d-%m-%Y").date()
+            )
             overlap = get_month_date_range_overlap(frost_range, storage_range)
-            start_date = max(datetime(2019, 3, 15), storage_range[0])
+            start_date = max(dt_date(2019, 3, 15), storage_range[0])
         else:
-            frost_range = Range(start=pd.to_datetime(
-                '15-03-2019', dayfirst=True), end=pd.to_datetime('30-04-2019', dayfirst=True))
+            frost_range = Range(
+                start=dt_date(2019, 3, 15),
+                end=dt_date(2019, 4, 30)
+            )
             if(row["direct_div_season_start"] is None or row["direct_div_season_end"] is None):
                 # If there aren't diversion dates (storage but storage outside of season), just use the frost range
                 diversion_range = frost_range
             else:
-                diversion_range = Range(start=pd.to_datetime(
-                    row["direct_div_season_start"], dayfirst=True), end=pd.to_datetime(row["direct_div_season_end"], dayfirst=True))
+                diversion_range = Range(
+                    start=datetime.strptime(row["direct_div_season_start"], "%d-%m-%Y").date(),
+                    end=datetime.strptime(row["direct_div_season_end"], "%d-%m-%Y").date()
+                )
             overlap = get_month_date_range_overlap(frost_range, diversion_range)
-            start_date = max(datetime(2019, 3, 15), diversion_range[0])
+            start_date = max(dt_date(2019, 3, 15), diversion_range[0])
         # Every other day
         overlap = overlap // 2
         first_index = convert_date_to_index(start_date)
@@ -909,17 +917,17 @@ def generate_senior_diverter_ts(senior_diverters_data, start_year):
         senior_diverter_ts[f"{start_year}"] = [0]*365
     return senior_diverter_ts
 
-    
+
 def generate_non_onstream_dam_diversions(row, non_onstream_diverters):
     """
-        Given a senior diverter data structure, sort into onstream dams and other diverters. 
+        Given a senior diverter data structure, sort into onstream dams and other diverters.
         For the diverters that are not onstream dams, generate their yearly diversion time series.
     """
     if(pd.isna(row['pod_type']) or not "Point of Onstream Storage" in row['pod_type']):
         # An onstream dam has different demands for diversions than a point of direct diversion or storage
         yearly_ts = generate_yearly_ts_from_row(row)
         non_onstream_diverters[row['order_upstream_to_downstream']] = yearly_ts
-        
+
 
 def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, upstream_diverters, gage_ratio_raw):
     """
@@ -961,7 +969,7 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
         scaled_flow = raw_flow_data * scaling_ratio
         available_flow = max(scaled_flow - total_upstream_diversions[i] - diverter_minimum_bypass_flow, 0)
         # Check if in season
-        if(not spans_water_year and (index_of_storage_season_end >= i and index_of_storage_season_start <= i) 
+        if(not spans_water_year and (index_of_storage_season_end >= i and index_of_storage_season_start <= i)
            or spans_water_year and (index_of_storage_season_end >= i or index_of_storage_season_start <= i)):
             current_diverter_flow[i] = min(available_flow, diverter_face_value - total_in_reservoir)
             total_in_reservoir += min(available_flow, diverter_face_value - total_in_reservoir)
@@ -993,11 +1001,11 @@ def generate_diversions_for_water_year(year, senior_diverters_df, non_onstream_d
                                                                                 senior_diverters_df[senior_diverters_df['order_upstream_to_downstream'] == order].iloc[0],
                                                                                 yearly_diversions,
                                                                                 onstream_storage_upstream_diverters[order],
-                                                                                gage_ratio_raw) 
+                                                                                gage_ratio_raw)
             yearly_diversions[order] = storage_diverter_output
             total_yearly_diversions = np.add(total_yearly_diversions, storage_diverter_output).tolist()
         else:
-            yearly_diversions[order] = non_onstream_diverters[order] 
+            yearly_diversions[order] = non_onstream_diverters[order]
             total_yearly_diversions = np.add(total_yearly_diversions, non_onstream_diverters[order]).tolist()
     water_year = year.iloc[0]['water_year']
     water_year_diversions[water_year.item()] = yearly_diversions
@@ -1028,7 +1036,7 @@ def generate_senior_diverter_ts_poi(senior_diverters_data, unimpaired_gage_ts, o
     non_onstream_diverters = {}
     senior_diverters_df.apply(lambda row, non_onstream_diverters :
                         generate_non_onstream_dam_diversions(row, non_onstream_diverters),
-                        non_onstream_diverters = non_onstream_diverters, 
+                        non_onstream_diverters = non_onstream_diverters,
                         axis = 1)
     unimpaired_gage_df = pd.DataFrame.from_dict(unimpaired_gage_ts)
     unimpaired_gage_df['water_year'] = unimpaired_gage_df['date'].apply(lambda date: generate_water_year(date))
@@ -1039,19 +1047,19 @@ def generate_senior_diverter_ts_poi(senior_diverters_data, unimpaired_gage_ts, o
                                                             year,
                                                             senior_diverters_df,
                                                             non_onstream_diverters,
-                                                            water_year_total_diversions, 
-                                                            water_year_diversions, 
-                                                            onstream_storage_upstream_diverters, 
+                                                            water_year_total_diversions,
+                                                            water_year_diversions,
+                                                            onstream_storage_upstream_diverters,
                                                             gage_ratio_raw),
                                                     senior_diverters_df = senior_diverters_df,
                                                     non_onstream_diverters = non_onstream_diverters,
                                                     water_year_total_diversions = water_year_total_diversions,
-                                                    water_year_diversions = water_year_diversions, 
-                                                    onstream_storage_upstream_diverters = onstream_storage_upstream_diverters, 
+                                                    water_year_diversions = water_year_diversions,
+                                                    onstream_storage_upstream_diverters = onstream_storage_upstream_diverters,
                                                 gage_ratio_raw = gage_ratio_raw)
     if(output_package):
         return water_year_diversions
-    return water_year_total_diversions 
+    return water_year_total_diversions
 
 def impair_poi_time_series(unimpaired_poi_ts, upstream_diverters_ts):
     """

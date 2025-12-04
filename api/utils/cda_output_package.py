@@ -1104,17 +1104,17 @@ def generate_cda_output_package(
                 with zipfile.ZipFile(file_like, mode='w') as zipFileByteObject:
                     #Put CSVs in zip
                     for file_name in output_package_csvs.keys():
-                        if(f'poi_{poi_id}' in file_name):
+                        if(f'poi_{poi_id + 1}' in file_name):
                             prepared_csv = output_package_csvs[file_name].to_csv(quotechar='"', quoting=csv.QUOTE_NONNUMERIC, index=False)
                             zipFileByteObject.writestr(f'{file_name}.csv', prepared_csv)
                             already_output.append(file_name)
                     #Put PNGs in zip
                     for file_name in output_package_plots.keys():
-                        if(f'poi_{poi_id}' in file_name):
+                        if(f'poi_{poi_id + 1}' in file_name):
                             zipFileByteObject.writestr(f'{file_name}.png', output_package_plots[file_name].getvalue())
                             already_output.append(file_name)
                 file_like.seek(0)
-                email_output_package_zip(email, file_like, file_name=f'CDA_Output_Package_poi_{poi_id}.zip', project_id=id, poi_id=f"POI {poi_id + 1}")
+                email_output_package_zip(email, file_like, file_name=f'CDA_Output_Package_poi_{poi_id + 1}.zip', project_id=id, poi_id=f"POI {poi_id + 1}")
                 del file_like
             #Clean up leftover files
             file_like = BytesIO()

@@ -34,12 +34,12 @@ MONTH_TO_NUMBER = {
 
 MAX_SENIOR_DIVERTERS = 4500
 Range = namedtuple('Range', ['start', 'end'])
-policy_season = Range(start=datetime.datetime(
-    2018, 12, 15), end=datetime.datetime(2019, 3, 31))
-frost_season = Range(start=datetime.datetime(
-    2019, 3, 15), end=datetime.datetime(2019, 4, 30))
-non_policy_season = Range(start=datetime.datetime(
-    2019, 4, 1), end=datetime.datetime(2019, 12, 14))
+policy_season = Range(start=datetime.date(
+    2018, 12, 15), end=datetime.date(2019, 3, 31))
+frost_season = Range(start=datetime.date(
+    2019, 3, 15), end=datetime.date(2019, 4, 30))
+non_policy_season = Range(start=datetime.date(
+    2019, 4, 1), end=datetime.date(2019, 12, 14))
 direct_div_date_cols = ["direct_div_season_start_month", "direct_div_season_end_month",
                         "direct_div_season_start_day", "direct_div_season_end_day"]
 storage_date_cols = ["storage_season_start_month", "storage_season_end_month",
@@ -677,7 +677,6 @@ def get_month_date_range_overlap(range_a, range_b):
         delta = (earliest_end - latest_start).days + 1
         overlap = max(0, delta)
         return overlap
-
     range_a_spans_year = range_a.start.year == 2018
     range_b_spans_year = range_b.start.year == 2018
     if (range_a_spans_year and not range_b_spans_year):
@@ -705,8 +704,10 @@ def get_row_date_overlap(row, proposed_range, prefix):
     if (pd.isnull(row[f"{prefix}_season_start"]) or pd.isnull(row[f"{prefix}_season_end"]) or proposed_range == 0):
         return 0
 
-    senior_diverter_diversion_range = Range(start=pd.to_datetime(
-        row[f"{prefix}_season_start"], dayfirst=True), end=pd.to_datetime(row[f"{prefix}_season_end"], dayfirst=True))
+    senior_diverter_diversion_range = Range(
+        start = datetime.datetime.strptime(row[f"{prefix}_season_start"], '%d-%m-%Y').date(),
+        end = datetime.datetime.strptime(row[f"{prefix}_season_end"], '%d-%m-%Y').date()
+    )
 
     return get_month_date_range_overlap(senior_diverter_diversion_range, proposed_range)
 
@@ -719,11 +720,11 @@ def calculate_frost_demand_amount(row, proposed_range):
         # Max Storage and Face amount are equal -> assume this means that all diversions go to storage
         # This implies that the frost diversions would happen in the policy season if storage is in policy season
         frost_range = Range(start=pd.to_datetime(
-            '15-03-2019', dayfirst=True), end=pd.to_datetime('31-03-2019', dayfirst=True))
+            '15-03-2019', dayfirst=True).date(), end=pd.to_datetime('31-03-2019', dayfirst=True).date())
     else:
         # Otherwise, use the full frost range
         frost_range = Range(start=pd.to_datetime(
-            '15-03-2019', dayfirst=True), end=pd.to_datetime('30-04-2019', dayfirst=True))
+            '15-03-2019', dayfirst=True).date(), end=pd.to_datetime('30-04-2019', dayfirst=True).date())
     overlap = get_month_date_range_overlap(frost_range, proposed_range)
     # Every other day
     overlap = overlap // 2
@@ -889,8 +890,10 @@ def calc_wsr_intermediate_values(senior_diverters_df, form_data_df):
     if (pd.isnull(form_data_df.loc["seasonOfDiversionStart"]) or pd.isnull(form_data_df.loc["seasonOfDiversionEnd"])):
         proposed_season_range = 0
     else:
-        proposed_season_range = Range(start=pd.to_datetime(
-            form_data_df["seasonOfDiversionStart"], dayfirst=True).tz_localize(None), end=pd.to_datetime(form_data_df["seasonOfDiversionEnd"], dayfirst=True).tz_localize(None))
+        proposed_season_range = Range(
+            start = datetime.datetime.strptime(form_data_df["seasonOfDiversionStart"], '%Y-%m-%dT%H:%M:%S.%fZ').date(),
+            end = datetime.datetime.strptime(form_data_df["seasonOfDiversionEnd"], '%Y-%m-%dT%H:%M:%S.%fZ').date()
+        )
 
     #9. Create overlapping_proposed_and_days_of_direct_diversion
     calculated_intermediate_values['overlapping_proposed_and_days_of_direct_diversion'] = calculated_intermediate_values.apply(
