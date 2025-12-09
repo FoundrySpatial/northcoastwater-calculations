@@ -771,7 +771,6 @@ def daily_flow_study(id, poi_id):
             pod_nhdid = wsr_session['session']['nhdId']
             if(pod_nhdid == None):
                 raise Exception("User does not have a selected point of diversion in session")
-            poi_nhdplusid = app.db.get_nhd_id_by_lat_lng(poi['lat'], poi['long'], 100)['nhdplusid']
             poi_ratio_raw = app.db.get_poi_size_and_mean_precip(cda_session_id = id, poi_id = poi_id)
             poi_ratio_data = calculate_cda_ratio(poi_ratio_raw, gage_ratio_raw)
             poi_ratio_data['poiId'] = poi['id']
