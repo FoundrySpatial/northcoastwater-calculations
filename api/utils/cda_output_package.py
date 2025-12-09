@@ -557,16 +557,20 @@ def generate_daily_flow_timeseries(
         Dict containing dataframe with output data
     """
     date_format = '%Y-%m-%dT%H:%M:%S.%fZ'
-    start_date_obj = datetime.datetime.strptime(proposed_start_date, date_format)
-    end_date_obj = datetime.datetime.strptime(proposed_end_date, date_format)
+    start_date_obj = datetime.datetime.strptime(proposed_start_date, date_format).date()
+    end_date_obj = datetime.datetime.strptime(proposed_end_date, date_format).date()
     start_date_obj = start_date_obj.replace(year=2000)
     end_date_obj = end_date_obj.replace(year=2000)
 
-    unimpaired_poi_df = pd.DataFrame.from_dict(daily_time_seriess["unimpaired"])
+    unimpaired_poi_df = pd.DataFrame.from_dict(
+        daily_time_seriess["unimpaired"]
+    )
     diverter_impaired_df = pd.DataFrame.from_dict(
         daily_time_seriess["impaired_with_diverters"]
     )
-    pod_impaired_df = pd.DataFrame.from_dict(daily_time_seriess["impaired_with_pod"])
+    pod_impaired_df = pd.DataFrame.from_dict(
+        daily_time_seriess["impaired_with_pod"]
+    )
     gage_df = pd.DataFrame.from_dict(unimpaired_gage_data)
     if not february:
         mbf = next((p for p in threshold_data if p["poiId"] == poi_id), None)[
@@ -617,7 +621,6 @@ def generate_daily_flow_timeseries(
     )
 
     year_index = 0
-    index_offset = 0
     # Populate the output columns for each row - only last 20 years
     end_of_gage_year = max(pd.to_datetime(gage_df["date"], dayfirst=True).dt.year)
     start_year = min(pd.to_datetime(gage_df["date"], dayfirst=True).dt.year)
@@ -632,10 +635,6 @@ def generate_daily_flow_timeseries(
         day = date_split[0]
         month = date_split[1]
         # Skip leap year
-        if(int(day) == 29 and int(month) == 2):
-            index_offset = index_offset + 1
-            continue
-        non_february_index = index - index_offset
         year = date_split[2]
         water_year = generate_water_year(day_record['date'])
         diversions = yearly_diversions[int(water_year)]
@@ -652,26 +651,30 @@ def generate_daily_flow_timeseries(
             total_diversion += diversions[diverter['order_upstream_to_downstream']][year_index] / AFD_TO_CFS
         output_row['senior_diverters_total_diversion_af'] = total_diversion
         output_row['senior_diverters_diversion_rate_cfs'] = total_diversion * AFD_TO_CFS
-        output_row['pod_diversion_af'] = (diverter_impaired_df.loc[non_february_index]['daily_flow'] - pod_impaired_df.loc[non_february_index]['daily_flow']) / AFD_TO_CFS
+        # Get the correct rows for each of these based on the given date from the gage timeseries
+        diverter_impaired_row = diverter_impaired_df.iloc[index]
+        pod_impaired_row = pod_impaired_df.iloc[index]
+        unimpaired_poi_row = unimpaired_poi_df.iloc[index]
+        output_row['pod_diversion_af'] = (diverter_impaired_row['daily_flow'] - pod_impaired_row['daily_flow']) / AFD_TO_CFS
         output_row['pod_diversion_cfs'] = output_row['pod_diversion_af'] * AFD_TO_CFS
-        output_row['poi_flow_unimpaired'] = unimpaired_poi_df.loc[non_february_index]['daily_flow'] / AFD_TO_CFS
-        output_row['poi_flow_unimpaired_cfs'] = unimpaired_poi_df.loc[non_february_index]['daily_flow']
-        output_row['poi_flow_impaired_with_senior_diverters_cfs'] = diverter_impaired_df.loc[non_february_index]['daily_flow']
-        output_row['poi_flow_impaired_with_senior_diverters_plus_proposed_cfs'] = pod_impaired_df.loc[non_february_index]['daily_flow']
+        output_row['poi_flow_unimpaired'] = unimpaired_poi_row['daily_flow'] / AFD_TO_CFS
+        output_row['poi_flow_unimpaired_cfs'] = unimpaired_poi_row['daily_flow']
+        output_row['poi_flow_impaired_with_senior_diverters_cfs'] = diverter_impaired_row['daily_flow']
+        output_row['poi_flow_impaired_with_senior_diverters_plus_proposed_cfs'] = pod_impaired_row['daily_flow']
         output_row[name_of_comparison_column] = mbf
         output_row[f"poi_unimpaired_flow_meets_or_exceeds_{suffix}"] = (
-            1 if output_row["poi_flow_unimpaired_cfs"] > mbf else 0
+            1 if output_row["poi_flow_unimpaired_cfs"] >= mbf else 0
         )
         output_row[f"poi_impaired_flow_meets_or_exceeds_{suffix}"] = (
-            1 if output_row["poi_flow_impaired_with_senior_diverters_cfs"] > mbf else 0
+            1 if output_row["poi_flow_impaired_with_senior_diverters_cfs"] >= mbf else 0
         )
         output_row[f"poi_impaired_flow_plus_proposed_meets_or_exceeds_{suffix}"] = (
             1
             if output_row["poi_flow_impaired_with_senior_diverters_plus_proposed_cfs"]
-            > mbf
+            >= mbf
             else 0
         )
-        row_date = pd.to_datetime(day_record["date"], dayfirst=True).replace(year = 2000)
+        row_date = datetime.date(int(year), int(month), int(day)).replace(year = 2000)
 
         if start_date_obj <= end_date_obj:
             # normal season in 1 year
@@ -1067,7 +1070,8 @@ def generate_cda_output_package(
             output_package_csvs = output_package_csvs | poi_senior_diverter_output_csv
             daily_flow_study_timeseries = generate_daily_flow_timeseries(poi_id, poi_time_seriess[poi_id], unimpaired_gage_data, cda_session['thresholdTableData'], cda_session['seasonOfDiversionStart'], cda_session['seasonOfDiversionEnd'], upstream_senior_diverters, diverters_upstream_of_onstream_storage[poi_id], gage_ratio_raw)
             output_package_csvs = output_package_csvs | daily_flow_study_timeseries
-            if("februaryMedian" in cda_session['thresholdTableData']):
+            poi_threshold_data = next(x for x in cda_session['thresholdTableData'] if x['poiId'] == poi_id)
+            if("februaryMedian" in poi_threshold_data):
                 february_median_timeseries = generate_daily_flow_timeseries(poi_id, poi_time_seriess[poi_id], unimpaired_gage_data, cda_session['thresholdTableData'], cda_session['seasonOfDiversionStart'], cda_session['seasonOfDiversionEnd'],upstream_senior_diverters, diverters_upstream_of_onstream_storage[poi_id], gage_ratio_raw, february=True)
                 output_package_csvs = output_package_csvs | february_median_timeseries
     except Exception as e:

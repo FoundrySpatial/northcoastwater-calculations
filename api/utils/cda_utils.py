@@ -917,7 +917,6 @@ def generate_senior_diverter_ts(senior_diverters_data, start_year):
         senior_diverter_ts[f"{start_year}"] = [0]*365
     return senior_diverter_ts
 
-
 def generate_non_onstream_dam_diversions(row, non_onstream_diverters):
     """
         Given a senior diverter data structure, sort into onstream dams and other diverters.
@@ -935,7 +934,13 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
         Uses a "fill and spill" approach, where all water is taken from the stream until the face_value is reached.
         Water available in the stream is calculated from the gaged streamflow data scaled to the diverter watershed.
     """
-    total_upstream_diversions = [0] * 365
+    current_water_year = generate_water_year(year.iloc[0]['date'])
+    if(is_leap_year(current_water_year)):
+        number_of_days_in_year = 366
+        total_upstream_diversions = [0] * 366
+    else:
+        number_of_days_in_year = 365
+        total_upstream_diversions = [0] * 365
     for order in upstream_diverters:
         total_upstream_diversions = np.add(total_upstream_diversions, yearly_diversion[order]).tolist()
     i = 0
@@ -945,10 +950,10 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
     water_year_start = datetime.strptime("01-10-2019", "%d-%m-%Y")
     index_of_storage_season_start = (datetime.strptime(f"{int(diverter['storage_season_start_day'])}-{int(diverter['storage_season_start_month'])}-2019", "%d-%m-%Y") - water_year_start).days
     if(index_of_storage_season_start < 0):
-        index_of_storage_season_start = 365 + index_of_storage_season_start
+        index_of_storage_season_start = number_of_days_in_year + index_of_storage_season_start
     index_of_storage_season_end = (datetime.strptime(f"{int(diverter['storage_season_end_day'])}-{int(diverter['storage_season_end_month'])}-2019", "%d-%m-%Y") - water_year_start).days
     if(index_of_storage_season_end < 0):
-        index_of_storage_season_end = 365 + index_of_storage_season_end
+        index_of_storage_season_end = number_of_days_in_year + index_of_storage_season_end
     # Check if time range spans water year
     spans_water_year = index_of_storage_season_end < index_of_storage_season_start
     diverter_face_value = diverter['face_amount_af'] * AFD_TO_CFS
@@ -956,13 +961,10 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
     diverter_minimum_bypass_flow = diverter['minimum_bypass_flow_cfs']
     if(pd.isna(diverter_minimum_bypass_flow)):
         diverter_minimum_bypass_flow = 0
-    current_diverter_flow = [0] * 365
+    current_diverter_flow = [0] * number_of_days_in_year
     for _, day in year.iterrows():
         # I know iterrows isn't the best, but we need to continually pass through these values to work
         # towards the total, it is a definitely iterative process for this unfortunately
-        if(day['date'].startswith("29-02")):
-            # Skip leap year
-            continue
         raw_flow_data = day['daily_flow']
         if(pd.isna(raw_flow_data)):
             raw_flow_data = 0
@@ -979,6 +981,14 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
             break
     return current_diverter_flow
 
+def is_leap_year(year: int):
+    """
+    Function to determing if given year is leap year
+
+    :param year: given year
+    :type year: int
+    """
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
 def generate_diversions_for_water_year(year, senior_diverters_df, non_onstream_diverters, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw):
     """
@@ -994,19 +1004,33 @@ def generate_diversions_for_water_year(year, senior_diverters_df, non_onstream_d
     if(not senior_diverters_df.empty):
         order_upstream_to_downstream = sorted(senior_diverters_df['order_upstream_to_downstream'].tolist())
     yearly_diversions = {}
-    total_yearly_diversions = [0] * 365
+    current_water_year = generate_water_year(year.iloc[0]['date'])
+    if(is_leap_year(current_water_year)):
+        total_yearly_diversions = [0] * 366
+    else:
+        total_yearly_diversions = [0] * 365
     for order in order_upstream_to_downstream:
         if order in onstream_storage_upstream_diverters.keys():
-            storage_diverter_output = generate_point_of_onstream_storage_output(year,
-                                                                                senior_diverters_df[senior_diverters_df['order_upstream_to_downstream'] == order].iloc[0],
-                                                                                yearly_diversions,
-                                                                                onstream_storage_upstream_diverters[order],
-                                                                                gage_ratio_raw)
+            storage_diverter_output = generate_point_of_onstream_storage_output(
+                year,
+                senior_diverters_df[senior_diverters_df['order_upstream_to_downstream'] == order].iloc[0],
+                yearly_diversions,
+                onstream_storage_upstream_diverters[order],
+                gage_ratio_raw
+            )
             yearly_diversions[order] = storage_diverter_output
             total_yearly_diversions = np.add(total_yearly_diversions, storage_diverter_output).tolist()
         else:
-            yearly_diversions[order] = non_onstream_diverters[order]
-            total_yearly_diversions = np.add(total_yearly_diversions, non_onstream_diverters[order]).tolist()
+            if(len(total_yearly_diversions) == 366):
+                # Leap year case
+                # Extend diversion from february 28th to february 29th
+                # February 28th is index 151
+                # All diverters are soon going to be point of onstream storage diverters (next ticket)
+                # So just bear with me for this one for now!
+                yearly_diversions[order] = non_onstream_diverters[order][0:151] + [non_onstream_diverters[order][151]] + non_onstream_diverters[order][151:]
+            else:
+                yearly_diversions[order] = non_onstream_diverters[order]
+            total_yearly_diversions = np.add(total_yearly_diversions, yearly_diversions[order]).tolist()
     water_year = year.iloc[0]['water_year']
     water_year_diversions[water_year.item()] = yearly_diversions
     water_year_total_diversions[water_year.item()] = total_yearly_diversions
@@ -1043,20 +1067,22 @@ def generate_senior_diverter_ts_poi(senior_diverters_data, unimpaired_gage_ts, o
     water_year_total_diversions = {}
     water_year_diversions = {}
     unimpaired_gage_df.groupby('water_year').apply(lambda year, senior_diverters_df, non_onstream_diverters, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw:
-                                                    generate_diversions_for_water_year(
-                                                            year,
-                                                            senior_diverters_df,
-                                                            non_onstream_diverters,
-                                                            water_year_total_diversions,
-                                                            water_year_diversions,
-                                                            onstream_storage_upstream_diverters,
-                                                            gage_ratio_raw),
-                                                    senior_diverters_df = senior_diverters_df,
-                                                    non_onstream_diverters = non_onstream_diverters,
-                                                    water_year_total_diversions = water_year_total_diversions,
-                                                    water_year_diversions = water_year_diversions,
-                                                    onstream_storage_upstream_diverters = onstream_storage_upstream_diverters,
-                                                gage_ratio_raw = gage_ratio_raw)
+        generate_diversions_for_water_year(
+            year,
+            senior_diverters_df,
+            non_onstream_diverters,
+            water_year_total_diversions,
+            water_year_diversions,
+            onstream_storage_upstream_diverters,
+            gage_ratio_raw
+        ),
+        senior_diverters_df = senior_diverters_df,
+        non_onstream_diverters = non_onstream_diverters,
+        water_year_total_diversions = water_year_total_diversions,
+        water_year_diversions = water_year_diversions,
+        onstream_storage_upstream_diverters = onstream_storage_upstream_diverters,
+        gage_ratio_raw = gage_ratio_raw
+    )
     if(output_package):
         return water_year_diversions
     return water_year_total_diversions
@@ -1198,6 +1224,8 @@ def scale_gage_ts_to_poi(unimpaired_gage_data, ratio):
             unimpaired poi data
     """
     df = pd.DataFrame.from_dict(unimpaired_gage_data)
+    # There will be values which need to be ffilled around leap year edge cases, etc.
+    df.fillna(method='ffill', inplace=True)
     if(ratio < 0):
         raise Exception("Can't enter negative ratio to scale gage time-series")
     if('daily_flow' in df.columns):
