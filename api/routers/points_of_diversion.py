@@ -30,6 +30,7 @@ def get_points_of_diversion_water_rights(params):
     watershed = app.db.get_watershed_by_nhd_id(nhd)
     date = datetime.now(pytz.utc)
     unsorted_water_rights_csv_data = app.db.get_unsorted_senior_diverter_csv(nhdplusid = nhd, lat = lat, lng = lng, date = date)
+    wsr_session = app.db.get_wsr_session_by_id(g.user_id, session_id)['session']
     water_rights_dicts = [dict(row) for row in unsorted_water_rights_csv_data]
     application_numbers = [row['application_number'] for row in water_rights_dicts]
     pod_diverter_rain_and_area = app.db.get_diverter_size_and_mean_precip(application_numbers = application_numbers)
@@ -50,7 +51,7 @@ def get_points_of_diversion_water_rights(params):
                 # little bit of type handling
                 output_dict[key] = float(output_dict[key])
         output.append(output_dict)
-    raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(output, nhd, lat, lng)
+    raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(output, nhd, lat, lng, wsr_session)
     water_rights_csv_data = get_adjusted_csv_data(raw_water_rights_csv_data, watershed)
     water_rights_json = get_intermediate_data_json_formatted(water_rights_csv_data)
     app.db.save_raw_senior_diverters(g.user_id, session_id, water_rights_json)

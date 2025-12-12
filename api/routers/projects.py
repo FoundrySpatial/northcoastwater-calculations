@@ -244,6 +244,7 @@ def get_gage_water_rights(params, id):
         if(date is None):
             date = datetime.now(pytz.timezone('America/Vancouver'))
             app.db.update_wsr_session_by_id(g.user_id, id, {'freezeDate': str(date)})
+        wsr_session = app.db.get_wsr_session_by_id(g.user_id, id)['session']
         water_shed = app.db.get_watershed_by_nhd_id(nhd)
         unsorted_water_rights_csv_data = app.db.get_unsorted_senior_diverter_csv(nhdplusid = nhd, lat = lat, lng = lng, date = date)
         # Handling for differently-sized watersheds for PODs
@@ -267,7 +268,7 @@ def get_gage_water_rights(params, id):
                     # little bit of type handling
                     output_dict[key] = float(output_dict[key])
             output.append(output_dict)
-        raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(output, nhd, lat, lng)
+        raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(output, nhd, lat, lng, wsr_session)
         water_rights_csv_data = get_adjusted_csv_data(raw_water_rights_csv_data, water_shed, gage = True)
         wsr_senior_diverter_csv = app.db.get_wsr_edited_senior_diverter_csv_by_user_id(g.user_id, id)
         water_rights_csv_data  = overwrite_with_wsr_diverters(water_rights_csv_data, wsr_senior_diverter_csv)
@@ -574,6 +575,7 @@ def process_uploaded_gage_water_rights_csv(id):
         exists = app.db.check_gage_diverters_exists(g.user_id, id)
         if not exists and user_included_upload:
             gage = app.db.get_wsr_selected_gage_by_id(g.user_id, id)
+            wsr_session = app.db.get_wsr_session_by_id(g.user_id, id)['session']
             nhd = gage["nhdplusid"]
             lat = gage["site_location"]["geometry"]["coordinates"][1]
             lng = gage["site_location"]["geometry"]["coordinates"][0]
@@ -583,7 +585,7 @@ def process_uploaded_gage_water_rights_csv(id):
                 app.db.update_wsr_session_by_id(g.user_id, id, {'freezeDate': str(date)})
             water_shed = app.db.get_watershed_by_nhd_id(nhd)
             unsorted_water_rights_csv_data = app.db.get_unsorted_senior_diverter_csv(nhd, lat, lng, date)
-            raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(unsorted_water_rights_csv_data, nhd, lat, lng)
+            raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(unsorted_water_rights_csv_data, nhd, lat, lng, wsr_session)
             water_rights_csv_data = get_adjusted_csv_data(raw_water_rights_csv_data, water_shed, gage = True)
             wsr_senior_diverter_csv = app.db.get_wsr_edited_senior_diverter_csv_by_user_id(g.user_id, id)
             water_rights_csv_data  = overwrite_with_wsr_diverters(water_rights_csv_data, wsr_senior_diverter_csv)
@@ -747,13 +749,12 @@ def daily_flow_study(id, poi_id):
     daily_flow_study_results = {'poiId' : poi_id}
     try:
         session = app.db.get_cda_session_by_id(g.user_id, id)['session']
-        gage = app.db.get_wsr_selected_gage_by_id(g.user_id, id)
         if(not ('thresholdTableData' in session) or session['thresholdTableData'] == None):
             raise Exception("User must have calculated threshold data to perform daily flow study.")
         unimpaired_gage_data = app.db.get_unimpaired_gage_data(g.user_id, id)
         if(unimpaired_gage_data == None):
             if(not session['regionalCriteria']):
-                result = app.db.unimpair_gage_timeseries(g.user_id, id, json.dumps({1800: [0]*365}))
+                app.db.unimpair_gage_timeseries(g.user_id, id, json.dumps({1800: [0]*365}))
                 unimpaired_gage_data = app.db.get_unimpaired_gage_data(g.user_id, id)
             else:
                 raise Exception("An unimpaired gage time-series doesn't exist for the user.")
@@ -794,19 +795,45 @@ def daily_flow_study(id, poi_id):
         (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, session)
         currently_upstream = []
         onstream_storage_upstream_diverters = {}
-        for diverter in upstream_senior_diverters:
-            if("Point of Onstream Storage" in diverter['pod_type']):
-                pod_upstream_diverters = app.db.get_onstream_pod_upstream_diverters(water_right_id = int(diverter['wr_water_right_id']), current_upstream_diverters = json.dumps(currently_upstream))
-                pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
-                onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
+        for diverter in upstream_senior_diverters_with_pod:
+            if(diverter['analysis_label'] == 'Proposed POD'):
+                pod_upstream_diverters = app.db.get_proposed_pod_upstream_diverters(
+                    session_id = id,
+                    current_upstream_diverters = json.dumps(currently_upstream)
+                )
+            else:
+                pod_upstream_diverters = app.db.get_onstream_pod_upstream_diverters(
+                    water_right_id = int(diverter['wr_water_right_id']),
+                    current_upstream_diverters = json.dumps(currently_upstream)
+                )
+            pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
+            onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
             currently_upstream.append({'order_upstream_to_downstream' : diverter['order_upstream_to_downstream'],
                                        'lat': diverter['latitude'],
                                        'lng': diverter['longitude']})
         gage_ratio_raw = app.db.get_gage_size_and_mean_precip(wsr_session_id = id)
-        upstream_diverters_ts = generate_senior_diverter_ts_poi(upstream_senior_diverters, unimpaired_gage_data, onstream_storage_upstream_diverters, gage_ratio_raw)
-        upstream_diverters_with_pod_ts = generate_senior_diverter_ts_poi(upstream_senior_diverters_with_pod, unimpaired_gage_data, onstream_storage_upstream_diverters, gage_ratio_raw)
-        impair_result_diverters = impair_poi_time_series(unimpaired_poi_ts, upstream_diverters_ts)
-        impair_result_diverters_with_pod = impair_poi_time_series(unimpaired_poi_ts, upstream_diverters_with_pod_ts)
+        upstream_diverters_ts = generate_senior_diverter_ts_poi(
+            upstream_senior_diverters,
+            unimpaired_gage_data,
+            onstream_storage_upstream_diverters,
+            gage_ratio_raw,
+            session
+        )
+        upstream_diverters_with_pod_ts = generate_senior_diverter_ts_poi(
+            upstream_senior_diverters_with_pod,
+            unimpaired_gage_data,
+            onstream_storage_upstream_diverters,
+            gage_ratio_raw,
+            session
+        )
+        impair_result_diverters = impair_poi_time_series(
+            unimpaired_poi_ts,
+            upstream_diverters_ts
+        )
+        impair_result_diverters_with_pod = impair_poi_time_series(
+            unimpaired_poi_ts,
+            upstream_diverters_with_pod_ts
+        )
         app.db.save_impaired_poi_timeseries(diverters = json.dumps(impair_result_diverters),
                                             diverters_with_pod = json.dumps(impair_result_diverters_with_pod),
                                             id = id,
@@ -900,11 +927,19 @@ def generate_cda_session_package(params, id):
             (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, cda_session)
             currently_upstream = []
             onstream_storage_upstream_diverters = {}
-            for diverter in upstream_senior_diverters:
-                if("Point of Onstream Storage" in diverter['pod_type']):
-                    pod_upstream_diverters = app.db.get_onstream_pod_upstream_diverters(water_right_id = int(diverter['wr_water_right_id']), current_upstream_diverters = json.dumps(currently_upstream))
-                    pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
-                    onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
+            for diverter in upstream_senior_diverters_with_pod:
+                if(diverter['analysis_label'] == 'Proposed POD'):
+                    pod_upstream_diverters = app.db.get_proposed_pod_upstream_diverters(
+                        session_id = id,
+                        current_upstream_diverters = json.dumps(currently_upstream)
+                    )
+                else:
+                    pod_upstream_diverters = app.db.get_onstream_pod_upstream_diverters(
+                        water_right_id = int(diverter['wr_water_right_id']),
+                        current_upstream_diverters = json.dumps(currently_upstream)
+                    )
+                pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
+                onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
                 currently_upstream.append({'order_upstream_to_downstream' : diverter['order_upstream_to_downstream'],
                                         'lat': diverter['latitude'],
                                         'lng': diverter['longitude']})
@@ -914,9 +949,10 @@ def generate_cda_session_package(params, id):
     except Exception as e:
         raise Exception({"message": f'{str(e)}\nUnable to get data from the database.', 'status_code': 404})
     # Generate output package from given data
-    generate_output_process = Process(
-        target = generate_cda_output_package,
-        args = (gage_csvs, raw_gage_timeseries,unimpaired_gage_data, poi_unimpaired, poi_time_seriess,cda_session,wsr_senior_diverters,diverters_upstream_of_onstream_storage, gage_ratio_raw, email,id)
-    )
-    generate_output_process.start()
+    if(email != 'test'):
+        generate_output_process = Process(
+            target = generate_cda_output_package,
+            args = (gage_csvs, raw_gage_timeseries,unimpaired_gage_data, poi_unimpaired, poi_time_seriess,cda_session,wsr_senior_diverters,diverters_upstream_of_onstream_storage, gage_ratio_raw, email,id)
+        )
+        generate_output_process.start()
     return "emailing", 202
