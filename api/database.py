@@ -591,3 +591,11 @@ class Database:
         from queries.get_onstream_pod_upstream_diverters import get_onstream_pod_upstream_diverters_query
         result = self.execute_as_dict(get_onstream_pod_upstream_diverters_query, args=args)
         return result
+
+    def get_proposed_pod_upstream_diverters(self, **args):
+        """
+        For a point of onstream storage, get the list of diverters which are upstream of it.
+        """
+        from queries.get_proposed_pod_upstream_diverters_query import get_proposed_pod_upstream_diverters_query
+        result = self.execute_as_dict(get_proposed_pod_upstream_diverters_query, args=args)
+        return result
