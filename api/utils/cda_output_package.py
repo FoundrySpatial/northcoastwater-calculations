@@ -545,6 +545,8 @@ def generate_daily_flow_timeseries(
     upstream_senior_diverters,
     onstream_storage_upstream_diverters,
     gage_ratio_raw,
+    cda_session,
+    pod_data,
     february=False,
 ):
     """
@@ -561,7 +563,6 @@ def generate_daily_flow_timeseries(
     end_date_obj = datetime.datetime.strptime(proposed_end_date, date_format).date()
     start_date_obj = start_date_obj.replace(year=2000)
     end_date_obj = end_date_obj.replace(year=2000)
-
     unimpaired_poi_df = pd.DataFrame.from_dict(
         daily_time_seriess["unimpaired"]
     )
@@ -586,13 +587,21 @@ def generate_daily_flow_timeseries(
         output_filename = f"february_median_flow_time_series_poi_{poi_id + 1}_B.5.3.6"
         name_of_comparison_column = "february_median_flow_cfs"
         suffix = "fmf"
-    yearly_diversions = generate_senior_diverter_ts_poi(upstream_senior_diverters, unimpaired_gage_data, onstream_storage_upstream_diverters, gage_ratio_raw, output_package=True)
+    yearly_diversions = generate_senior_diverter_ts_poi(
+        upstream_senior_diverters,
+        unimpaired_gage_data,
+        onstream_storage_upstream_diverters,
+        gage_ratio_raw,
+        cda_session,
+        output_package=True)
 
     columns = [
         "date",
         "gage_flow"
     ]
     sum_yearly_diversions_diverters = {}
+    pod_face_value = pod_data['face_amount_af']
+    pod_yearly_diversion_sum = 0
     for diverter in upstream_senior_diverters:
         # Generate the scaling ratio for each of the diversions so their estimated flow can be calculated
         columns.append(f"{diverter['application_number']}_face_value_af")
@@ -603,8 +612,10 @@ def generate_daily_flow_timeseries(
     columns.extend([
         "senior_diverters_total_diversion_af",
         "senior_diverters_diversion_rate_cfs",
+        "pod_face_value_af",
         "pod_diversion_af",
         "pod_diversion_cfs",
+        "pod_total_yearly_diversion_af",
         "poi_flow_unimpaired",
         "poi_flow_unimpaired_cfs",
         "poi_flow_impaired_with_senior_diverters_cfs",
@@ -655,8 +666,11 @@ def generate_daily_flow_timeseries(
         diverter_impaired_row = diverter_impaired_df.iloc[index]
         pod_impaired_row = pod_impaired_df.iloc[index]
         unimpaired_poi_row = unimpaired_poi_df.iloc[index]
+        output_row['pod_face_value_af'] = pod_face_value
         output_row['pod_diversion_af'] = (diverter_impaired_row['daily_flow'] - pod_impaired_row['daily_flow']) / AFD_TO_CFS
         output_row['pod_diversion_cfs'] = output_row['pod_diversion_af'] * AFD_TO_CFS
+        pod_yearly_diversion_sum += output_row['pod_diversion_af']
+        output_row['pod_total_yearly_diversion_af'] = pod_yearly_diversion_sum
         output_row['poi_flow_unimpaired'] = unimpaired_poi_row['daily_flow'] / AFD_TO_CFS
         output_row['poi_flow_unimpaired_cfs'] = unimpaired_poi_row['daily_flow']
         output_row['poi_flow_impaired_with_senior_diverters_cfs'] = diverter_impaired_row['daily_flow']
@@ -692,6 +706,7 @@ def generate_daily_flow_timeseries(
             # Reset the yearly diversions sums
             for diverter in sum_yearly_diversions_diverters.keys():
                 sum_yearly_diversions_diverters[diverter] = 0
+            pod_yearly_diversion_sum = 0
 
     return {output_filename: output_df}
 
@@ -1066,13 +1081,39 @@ def generate_cda_output_package(
                 raise Exception("No wsr senior diverters found - is the wsr section complete?")
             poi = next((p for p in cda_session['pointsOfInterest'] if p["id"] == poi_id), None)
             (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, cda_session)
+            pod_data = next(x for x in upstream_senior_diverters_with_pod if x['analysis_label'] == 'Proposed POD')
             poi_senior_diverter_output_csv = generate_poi_senior_diverters_output(poi_id, upstream_senior_diverters_with_pod)
             output_package_csvs = output_package_csvs | poi_senior_diverter_output_csv
-            daily_flow_study_timeseries = generate_daily_flow_timeseries(poi_id, poi_time_seriess[poi_id], unimpaired_gage_data, cda_session['thresholdTableData'], cda_session['seasonOfDiversionStart'], cda_session['seasonOfDiversionEnd'], upstream_senior_diverters, diverters_upstream_of_onstream_storage[poi_id], gage_ratio_raw)
+            daily_flow_study_timeseries = generate_daily_flow_timeseries(
+                poi_id,
+                poi_time_seriess[poi_id],
+                unimpaired_gage_data,
+                cda_session['thresholdTableData'],
+                cda_session['seasonOfDiversionStart'],
+                cda_session['seasonOfDiversionEnd'],
+                upstream_senior_diverters,
+                diverters_upstream_of_onstream_storage[poi_id],
+                gage_ratio_raw,
+                cda_session,
+                pod_data
+            )
             output_package_csvs = output_package_csvs | daily_flow_study_timeseries
             poi_threshold_data = next(x for x in cda_session['thresholdTableData'] if x['poiId'] == poi_id)
             if("februaryMedian" in poi_threshold_data):
-                february_median_timeseries = generate_daily_flow_timeseries(poi_id, poi_time_seriess[poi_id], unimpaired_gage_data, cda_session['thresholdTableData'], cda_session['seasonOfDiversionStart'], cda_session['seasonOfDiversionEnd'],upstream_senior_diverters, diverters_upstream_of_onstream_storage[poi_id], gage_ratio_raw, february=True)
+                february_median_timeseries = generate_daily_flow_timeseries(
+                    poi_id,
+                    poi_time_seriess[poi_id],
+                    unimpaired_gage_data,
+                    cda_session['thresholdTableData'],
+                    cda_session['seasonOfDiversionStart'],
+                    cda_session['seasonOfDiversionEnd'],
+                    upstream_senior_diverters,
+                    diverters_upstream_of_onstream_storage[poi_id],
+                    gage_ratio_raw,
+                    cda_session,
+                    pod_data,
+                    february=True
+                )
                 output_package_csvs = output_package_csvs | february_median_timeseries
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to generate time-series csvs.')

@@ -927,10 +927,16 @@ def generate_non_onstream_dam_diversions(row, non_onstream_diverters):
         yearly_ts = generate_yearly_ts_from_row(row)
         non_onstream_diverters[row['order_upstream_to_downstream']] = yearly_ts
 
-
-def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, upstream_diverters, gage_ratio_raw):
+def generate_diverter_yearly_output(
+        year,
+        diverter,
+        yearly_diversion,
+        upstream_diverters,
+        gage_ratio_raw,
+        proposed_project_ratio
+    ):
     """
-        For a point of onstream storage, generate its diversions for the year based on the impacts of its upstream diverters and the flow available in the stream.
+        For a given diverter, generate its diversions for the year based on the impacts of its upstream diverters and the flow available in the stream.
         Uses a "fill and spill" approach, where all water is taken from the stream until the face_value is reached.
         Water available in the stream is calculated from the gaged streamflow data scaled to the diverter watershed.
     """
@@ -942,20 +948,60 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
         number_of_days_in_year = 365
         total_upstream_diversions = [0] * 365
     for order in upstream_diverters:
-        total_upstream_diversions = np.add(total_upstream_diversions, yearly_diversion[order]).tolist()
+        if(order in yearly_diversion):
+            # Sometimes proposed POD will have to be skipped here for the non-pod-included case
+            total_upstream_diversions = np.add(total_upstream_diversions, yearly_diversion[order]).tolist()
     i = 0
     total_in_reservoir = 0
     diverter_ratio_data = {'drainage_area_sqmi': diverter['drainage_area_sqmi'], 'map_1991_2020_in': diverter['annual_precip_in']}
-    scaling_ratio = calculate_cda_ratio(diverter_ratio_data, gage_ratio_raw)['ratio']
+    if(diverter['analysis_label'] == 'Proposed POD'):
+       scaling_ratio = proposed_project_ratio
+    else:
+        scaling_ratio = calculate_cda_ratio(diverter_ratio_data, gage_ratio_raw)['ratio']
     water_year_start = datetime.strptime("01-10-2019", "%d-%m-%Y")
-    index_of_storage_season_start = (datetime.strptime(f"{int(diverter['storage_season_start_day'])}-{int(diverter['storage_season_start_month'])}-2019", "%d-%m-%Y") - water_year_start).days
-    if(index_of_storage_season_start < 0):
-        index_of_storage_season_start = number_of_days_in_year + index_of_storage_season_start
-    index_of_storage_season_end = (datetime.strptime(f"{int(diverter['storage_season_end_day'])}-{int(diverter['storage_season_end_month'])}-2019", "%d-%m-%Y") - water_year_start).days
-    if(index_of_storage_season_end < 0):
-        index_of_storage_season_end = number_of_days_in_year + index_of_storage_season_end
+    index_of_storage_season_start = -1
+    index_of_direct_div_season_start = -1
+    # Use the largest range between the storage and diversion seasons to figure out the storage season range
+    if(pd.notna(diverter['storage_season_start_day']) and
+       pd.notna(diverter['storage_season_start_month'])):
+        index_of_storage_season_start = (datetime.strptime(f"{int(diverter['storage_season_start_day'])}-{int(diverter['storage_season_start_month'])}-2019", "%d-%m-%Y") - water_year_start).days
+    if(pd.notna(diverter['direct_div_season_start_day']) and
+       pd.notna(diverter['direct_div_season_start_month'])):
+        index_of_direct_div_season_start = (datetime.strptime(f"{int(diverter['direct_div_season_start_day'])}-{int(diverter['direct_div_season_start_month'])}-2019", "%d-%m-%Y") - water_year_start).days
+    if(index_of_storage_season_start != -1 and index_of_direct_div_season_start != -1):
+        index_of_season_start = min(index_of_direct_div_season_start, index_of_storage_season_start)
+    elif(index_of_storage_season_start != -1):
+        index_of_season_start = index_of_storage_season_start
+    elif(index_of_direct_div_season_start != -1):
+        index_of_season_start = index_of_direct_div_season_start
+    else:
+        raise ValueError("Could not find season start index, is one of diversion or storage seasons populated in this diverter?")
+    # End date, calculate the same way
+    index_of_storage_season_end = -1
+    index_of_direct_div_season_end = -1
+    if(pd.notna(diverter['storage_season_end_day']) and
+       pd.notna(diverter['storage_season_end_month'])):
+        index_of_storage_season_end = (datetime.strptime(f"{int(diverter['storage_season_end_day'])}-{int(diverter['storage_season_end_month'])}-2019", "%d-%m-%Y") - water_year_start).days
+    if(pd.notna(diverter['direct_div_season_end_day']) and
+       pd.notna(diverter['direct_div_season_end_month'])):
+        index_of_direct_div_season_end = (datetime.strptime(f"{int(diverter['direct_div_season_end_day'])}-{int(diverter['direct_div_season_end_month'])}-2019", "%d-%m-%Y") - water_year_start).days
+    if(index_of_storage_season_end != -1 and index_of_direct_div_season_end != -1):
+        index_of_season_end = min(index_of_direct_div_season_end, index_of_storage_season_end)
+    elif(index_of_storage_season_end != -1):
+        index_of_season_end = index_of_storage_season_end
+    elif(index_of_direct_div_season_end != -1):
+        index_of_season_end = index_of_direct_div_season_end
+    else:
+        raise ValueError("Could not find season end index, is one of diversion or storage seasons populated in this diverter?")
+
+    has_max_rate_of_diversion = pd.notna(diverter['max_rate_of_diversion_cfs']) and diverter['max_rate_of_diversion_cfs'] > 0
+    # Wrap year if necessary
+    if(index_of_season_start < 0):
+        index_of_season_start = number_of_days_in_year + index_of_season_start
+    if(index_of_season_end < 0):
+        index_of_season_end = number_of_days_in_year + index_of_season_end
     # Check if time range spans water year
-    spans_water_year = index_of_storage_season_end < index_of_storage_season_start
+    spans_water_year = index_of_season_end < index_of_season_start
     diverter_face_value = diverter['face_amount_af'] * AFD_TO_CFS
     # If there is a minimum bypass flow specified in the license, use it as a minimum flow that the dam allows through
     diverter_minimum_bypass_flow = diverter['minimum_bypass_flow_cfs']
@@ -969,10 +1015,15 @@ def generate_point_of_onstream_storage_output(year, diverter, yearly_diversion, 
         if(pd.isna(raw_flow_data)):
             raw_flow_data = 0
         scaled_flow = raw_flow_data * scaling_ratio
-        available_flow = max(scaled_flow - total_upstream_diversions[i] - diverter_minimum_bypass_flow, 0)
+
+        if(has_max_rate_of_diversion):
+            diversion = min(scaled_flow - total_upstream_diversions[i] - diverter_minimum_bypass_flow, diverter['max_rate_of_diversion_cfs'])
+            available_flow = max(diversion, 0)
+        else:
+            available_flow = max(scaled_flow - total_upstream_diversions[i] - diverter_minimum_bypass_flow, 0)
         # Check if in season
-        if(not spans_water_year and (index_of_storage_season_end >= i and index_of_storage_season_start <= i)
-           or spans_water_year and (index_of_storage_season_end >= i or index_of_storage_season_start <= i)):
+        if(not spans_water_year and (index_of_season_end >= i and index_of_season_start <= i)
+           or spans_water_year and (index_of_season_end >= i or index_of_season_start <= i)):
             current_diverter_flow[i] = min(available_flow, diverter_face_value - total_in_reservoir)
             total_in_reservoir += min(available_flow, diverter_face_value - total_in_reservoir)
         i += 1
@@ -990,7 +1041,15 @@ def is_leap_year(year: int):
     """
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
-def generate_diversions_for_water_year(year, senior_diverters_df, non_onstream_diverters, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw):
+def generate_diversions_for_water_year(
+        year,
+        senior_diverters_df,
+        water_year_total_diversions,
+        water_year_diversions,
+        onstream_storage_upstream_diverters,
+        gage_ratio_raw,
+        proposed_project_ratio
+    ):
     """
         For a given water year, generate the senior diversions for the given senior diverters.
         This analysis takes into account onstream dam points of storage that have a "fill and spill" approach.
@@ -1010,41 +1069,33 @@ def generate_diversions_for_water_year(year, senior_diverters_df, non_onstream_d
     else:
         total_yearly_diversions = [0] * 365
     for order in order_upstream_to_downstream:
-        if order in onstream_storage_upstream_diverters.keys():
-            storage_diverter_output = generate_point_of_onstream_storage_output(
-                year,
-                senior_diverters_df[senior_diverters_df['order_upstream_to_downstream'] == order].iloc[0],
-                yearly_diversions,
-                onstream_storage_upstream_diverters[order],
-                gage_ratio_raw
-            )
-            yearly_diversions[order] = storage_diverter_output
-            total_yearly_diversions = np.add(total_yearly_diversions, storage_diverter_output).tolist()
-        else:
-            if(len(total_yearly_diversions) == 366):
-                # Leap year case
-                # Extend diversion from february 28th to february 29th
-                # February 28th is index 151
-                # All diverters are soon going to be point of onstream storage diverters (next ticket)
-                # So just bear with me for this one for now!
-                yearly_diversions[order] = non_onstream_diverters[order][0:151] + [non_onstream_diverters[order][151]] + non_onstream_diverters[order][151:]
-            else:
-                yearly_diversions[order] = non_onstream_diverters[order]
-            total_yearly_diversions = np.add(total_yearly_diversions, yearly_diversions[order]).tolist()
+        storage_diverter_output = generate_diverter_yearly_output(
+            year,
+            senior_diverters_df[senior_diverters_df['order_upstream_to_downstream'] == order].iloc[0],
+            yearly_diversions,
+            onstream_storage_upstream_diverters[order],
+            gage_ratio_raw,
+            proposed_project_ratio
+        )
+        yearly_diversions[order] = storage_diverter_output
+        total_yearly_diversions = np.add(total_yearly_diversions, storage_diverter_output).tolist()
     water_year = year.iloc[0]['water_year']
     water_year_diversions[water_year.item()] = yearly_diversions
     water_year_total_diversions[water_year.item()] = total_yearly_diversions
 
-def generate_senior_diverter_ts_poi(senior_diverters_data, unimpaired_gage_ts, onstream_storage_upstream_diverters, gage_ratio_raw, output_package = False):
+def generate_senior_diverter_ts_poi(
+        senior_diverters_data,
+        unimpaired_gage_ts,
+        onstream_storage_upstream_diverters,
+        gage_ratio_raw,
+        session,
+        output_package = False):
     """
     Generate a time series of the form:
         {<year> : [365 days of yearly diversions]}
-    Diversions are generated in two different ways:
-        1. If a diverter is a point of offstream storage or a diversion of flow from a stream, it is said to average its diversions over its diversion or storage season.
-            This is done by taking its face value and spreading it over its season, with each day getting an equal amount of water.
-        2. If a diverter is an onstream dam (pod_type = "Point of Onstream Storage") it uses a "fill and spill approach"
-            This is done by diverting all water (other than that necessary to maintain the minimum bypass flow in the license) to the diverter.
-            Once its face value is reached, the dam is said to be full, and all additional flow "spills" over the end of the dam and there are no diversions
+    Diversions are generated by using a fill and spill approach:
+        This is done by diverting all water (other than that necessary to maintain the minimum bypass flow in the license) to the diverter.
+        Once its face value is reached, the dam is said to be full, and all additional flow "spills" over the end of the dam and there are no diversions
     If the output_package field is True, the output is broken down by diverter (necessary for output package formatting)
         {<year> : {<diverter_1> : [365 days], <diverter_2> : [365 days] ... etc.}}
     Args:
@@ -1057,31 +1108,27 @@ def generate_senior_diverter_ts_poi(senior_diverters_data, unimpaired_gage_ts, o
     senior_diverters_df = pd.DataFrame.from_dict(senior_diverters_data)
     if(not senior_diverters_df.empty):
         senior_diverters_df['use_codes'] = senior_diverters_df.apply(format_use_codes, axis=1)
-    non_onstream_diverters = {}
-    senior_diverters_df.apply(lambda row, non_onstream_diverters :
-                        generate_non_onstream_dam_diversions(row, non_onstream_diverters),
-                        non_onstream_diverters = non_onstream_diverters,
-                        axis = 1)
     unimpaired_gage_df = pd.DataFrame.from_dict(unimpaired_gage_ts)
     unimpaired_gage_df['water_year'] = unimpaired_gage_df['date'].apply(lambda date: generate_water_year(date))
     water_year_total_diversions = {}
     water_year_diversions = {}
-    unimpaired_gage_df.groupby('water_year').apply(lambda year, senior_diverters_df, non_onstream_diverters, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw:
+    proposed_project_ratio = next((p for p in session['thresholdTableData'] if p["poiId"] == -1), None)['ratio']
+    unimpaired_gage_df.groupby('water_year').apply(lambda year, senior_diverters_df, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw, proposed_project_ratio:
         generate_diversions_for_water_year(
             year,
             senior_diverters_df,
-            non_onstream_diverters,
             water_year_total_diversions,
             water_year_diversions,
             onstream_storage_upstream_diverters,
-            gage_ratio_raw
+            gage_ratio_raw,
+            proposed_project_ratio
         ),
         senior_diverters_df = senior_diverters_df,
-        non_onstream_diverters = non_onstream_diverters,
         water_year_total_diversions = water_year_total_diversions,
         water_year_diversions = water_year_diversions,
         onstream_storage_upstream_diverters = onstream_storage_upstream_diverters,
-        gage_ratio_raw = gage_ratio_raw
+        gage_ratio_raw = gage_ratio_raw,
+        proposed_project_ratio = proposed_project_ratio
     )
     if(output_package):
         return water_year_diversions

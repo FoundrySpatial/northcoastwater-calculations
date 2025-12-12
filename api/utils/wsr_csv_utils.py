@@ -16,6 +16,9 @@ from psycopg2.extras import RealDictRow
 # import matplotlib.pyplot as plt
 
 AFD_TO_CFS = 1.5125/3
+GALLONS_TO_AF = 325851
+GALLONS_PER_DAY_TO_CFS = 646317
+GALLONS_PER_MINUTE_TO_CFS = 448.831
 
 MONTH_TO_NUMBER = {
     'Jan': 1,
@@ -1130,7 +1133,7 @@ def analysis_label_map_to_str(row, min_mainstem_order):
     elif(row['analysis_label_map'] == 5):
         return 'Inside Project Extent'
 
-def sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat, pod_long):
+def sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat, pod_long, wsr_session):
     """
     Perform sorting on unsorted diverters and add some formatting required for output csvs.
     Split apart for unit testing and readability purposes
@@ -1160,6 +1163,18 @@ def sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat,
     pod_data['nhdplusid'] = nhd
     pod_data['riparian'] = False
     pod_data['analysis_label_map'] = 3
+    wsr_session_volume = wsr_session['volumeOfDiversion']
+    if(wsr_session_volume['unit'] == 'acreFeet'):
+        pod_data['face_amount_af'] = wsr_session_volume['value']
+    elif(wsr_session_volume['unit'] =='gallons'):
+        pod_data['face_amount_af'] = wsr_session_volume['value'] / GALLONS_TO_AF
+    wsr_session_rate = wsr_session['rateOfDiversion']
+    if(wsr_session_rate['unit'] == 'cf/s'):
+        pod_data['max_rate_of_diversion_cfs'] = wsr_session_rate['value']
+    elif(wsr_session_rate['unit'] == 'gal/day'):
+        pod_data['max_rate_of_diversion_cfs'] = wsr_session_rate['value'] / GALLONS_PER_DAY_TO_CFS
+    elif(wsr_session_rate['unit'] == 'gal/min'):
+        pod_data['max_rate_of_diversion_cfs'] = wsr_session_rate['value'] / GALLONS_PER_MINUTE_TO_CFS
     for col in above_pod.columns:
         if col not in pod_data:
             pod_data[col] = None
@@ -1186,7 +1201,7 @@ def sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat,
     converted_list = [RealDictRow(row) for row in overall_output.to_dict(orient='records')]
     return converted_list
 
-def sort_and_format_unsorted_csv_data(unsorted_csv_data, nhd, pod_lat, pod_long):
+def sort_and_format_unsorted_csv_data(unsorted_csv_data, nhd, pod_lat, pod_long, wsr_session):
     """
     Sorts the unformatted csv data from get_unsorted_senior_diverters_by_session_id.
     Reformats into type expected by senior diverter csv functions.
@@ -1217,7 +1232,7 @@ def sort_and_format_unsorted_csv_data(unsorted_csv_data, nhd, pod_lat, pod_long)
     sys.setrecursionlimit(10000)
     build_ordered_nhds_upstream(upstream_df, lowest_mainstem_idx, tree_depth=0, mainstem_depth=0)
     sys.setrecursionlimit(1000)
-    return sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat, pod_long)
+    return sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat, pod_long, wsr_session)
 
 def calculate_wsr_output_values(wsr_summary_dicts, gage_data, pod_rain_and_area, average_gage_flow):
     """
