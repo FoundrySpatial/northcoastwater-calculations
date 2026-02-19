@@ -977,19 +977,19 @@ def generate_diverter_yearly_output(
     else:
         raise ValueError("Could not find season start index, is one of diversion or storage seasons populated in this diverter?")
     # End date, calculate the same way
-    index_of_storage_season_end = -1
-    index_of_direct_div_season_end = -1
+    index_of_storage_season_end = None
+    index_of_direct_div_season_end = None
     if(pd.notna(diverter['storage_season_end_day']) and
        pd.notna(diverter['storage_season_end_month'])):
         index_of_storage_season_end = (datetime.strptime(f"{int(diverter['storage_season_end_day'])}-{int(diverter['storage_season_end_month'])}-2019", "%d-%m-%Y") - water_year_start).days
     if(pd.notna(diverter['direct_div_season_end_day']) and
        pd.notna(diverter['direct_div_season_end_month'])):
         index_of_direct_div_season_end = (datetime.strptime(f"{int(diverter['direct_div_season_end_day'])}-{int(diverter['direct_div_season_end_month'])}-2019", "%d-%m-%Y") - water_year_start).days
-    if(index_of_storage_season_end != -1 and index_of_direct_div_season_end != -1):
+    if(index_of_storage_season_end is not None and index_of_direct_div_season_end is not None):
         index_of_season_end = min(index_of_direct_div_season_end, index_of_storage_season_end)
-    elif(index_of_storage_season_end != -1):
+    elif(index_of_storage_season_end is not None):
         index_of_season_end = index_of_storage_season_end
-    elif(index_of_direct_div_season_end != -1):
+    elif(index_of_direct_div_season_end is not None):
         index_of_season_end = index_of_direct_div_season_end
     else:
         raise ValueError("Could not find season end index, is one of diversion or storage seasons populated in this diverter?")
