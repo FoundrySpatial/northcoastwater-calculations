@@ -33,19 +33,16 @@ from utils.cda_utils import (
     calculate_yearly_mean,
     generate_recurrence_intervals,
     get_senior_diverters_upstream_of_poi,
-    impair_poi_time_series,
     overwrite_with_wsr_diverters,
     peaks_and_threshold,
     plot_and_find_instantaneous_peak_flow,
-    scale_gage_ts_to_poi,
     validate_gage_senior_diverter_csv,
     calculate_cda_ratio,
     cda_schema,
-    generate_senior_diverter_ts,
-    generate_senior_diverter_ts_poi,
-    calculate_natural_flow_variability,
-    calculate_instream_flows_reduction
+    generate_senior_diverter_ts
 )
+from utils.generate_daily_flow_study import generate_daily_flow_study_async
+
 from authentication.guards import authorization_guard
 import pandas as pd
 import csv
@@ -59,6 +56,7 @@ from io import BytesIO
 from utils.helpers import unit_converter
 import dateutil.parser as date_parser
 import pytz
+import uuid
 
 projects = Blueprint('projects', __name__)
 
@@ -733,163 +731,74 @@ def calculate_cda_thresholds(id):
 
     return thresholds_data, 200
 
-@projects.route('cda/sessions/<int:id>/poi/<int:poi_id>/daily-flow', methods=['GET'])
+@projects.route('cda/sessions/<int:id>/poi/<int:poi_id>/daily-flow', methods=['POST'])
 @authorization_guard
 def daily_flow_study(id, poi_id):
     """
         The big one : Daily flow study. The following is done:
-        1. Scale unimpaired gage time series to the POI using the poi proration ratio
-        2. Get the POI senior diverters and re-impair the time-series
-        3. Using generated time-series's, perform the spawning, rearing and passage daily flow study (calculate monthly data)
-        4. Perform the natural flow variability daily flow study calculations (calculate 1.5-year instantaneous peaks)
-        5. If the class II/III criteria is satisfied, perform monthly analysis of February median flow
-        6. Bring all data together, store in user cda session and return to front end.
+        1. Create a UUID and create a multiprocessing Process that does the following:
+            a. Scale unimpaired gage time series to the POI using the poi proration ratio
+            b. Get the POI senior diverters and re-impair the time-series
+            c. Using generated time-series's, perform the spawning, rearing and passage daily flow study (calculate monthly data)
+            d. Perform the natural flow variability daily flow study calculations (calculate 1.5-year instantaneous peaks)
+            e. If the class II/III criteria is satisfied, perform monthly analysis of February median flow
+            f. Bring all data together, store in user cda session and return to front end.
     """
-    #Initial set up, get the session and associated POI data
-    daily_flow_study_results = {'poiId' : poi_id}
-    try:
-        session = app.db.get_cda_session_by_id(g.user_id, id)['session']
-        if(not ('thresholdTableData' in session) or session['thresholdTableData'] == None):
-            raise Exception("User must have calculated threshold data to perform daily flow study.")
-        unimpaired_gage_data = app.db.get_unimpaired_gage_data(g.user_id, id)
-        if(unimpaired_gage_data == None):
-            if(not session['regionalCriteria']):
-                app.db.unimpair_gage_timeseries(g.user_id, id, json.dumps({1800: [0]*365}))
-                unimpaired_gage_data = app.db.get_unimpaired_gage_data(g.user_id, id)
-            else:
-                raise Exception("An unimpaired gage time-series doesn't exist for the user.")
-        poi = next((p for p in session['pointsOfInterest'] if p["id"] == poi_id), None)
-        if(poi == None):
-            raise Exception(f"No poi at given index : {poi_id}")
-        poi_threshold = next((p for p in session['thresholdTableData'] if p["poiId"] == poi_id), None)
-        if(poi_threshold == None):
-            raise Exception(f"Poi at given index doesn't have associated threshold data : {poi_id}")
-        if(not 'ratio' in poi_threshold):
-
-            gage_ratio_raw = app.db.get_gage_size_and_mean_precip(wsr_session_id = id)
-            #Get required data for user's pod
-            wsr_session = app.db.get_wsr_session_by_id(g.user_id, id)
-            pod_nhdid = wsr_session['session']['nhdId']
-            if(pod_nhdid == None):
-                raise Exception("User does not have a selected point of diversion in session")
-            poi_ratio_raw = app.db.get_poi_size_and_mean_precip(cda_session_id = id, poi_id = poi_id)
-            poi_ratio_data = calculate_cda_ratio(poi_ratio_raw, gage_ratio_raw)
-            poi_ratio_data['poiId'] = poi['id']
-            poi_threshold = poi_threshold | poi_ratio_data
-    except Exception as e:
-        raise Exception({"message": f'{str(e)}\nIssue with set up for daily flow study', 'status_code': 404})
-    #Scale unimpaired gage time series to the POI
-    try:
-        unimpaired_poi_ts = scale_gage_ts_to_poi(unimpaired_gage_data, poi_threshold['ratio'])
-        unimpaired_start_year = datetime.strptime(unimpaired_poi_ts.iloc[0]['date'], '%d-%m-%Y').year
-        unimpaired_end_year = datetime.strptime(unimpaired_poi_ts.iloc[len(unimpaired_poi_ts.index)-1]['date'], '%d-%m-%Y').year
-        daily_flow_study_results['yearsOfRecord'] = unimpaired_end_year-unimpaired_start_year
-        app.db.save_unimpaired_poi_ts(g.user_id, id, poi_id, unimpaired_poi_ts.to_json(orient='records'))
-    except Exception as e:
-        raise Exception({"message": f'{str(e)}\nUnable to generate unimpaired poi time series', 'status_code': 400})
-    #Get the senior diverters for the poi and impair
-    try:
-        wsr_senior_diverters = app.db.get_senior_diverter_csv_by_user_id(g.user_id, id)['csv_data']
-        if(wsr_senior_diverters == {}):
-            raise Exception("No wsr senior diverters found - is the wsr section complete?")
-        (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, session)
-        currently_upstream = []
-        onstream_storage_upstream_diverters = {}
-        for diverter in upstream_senior_diverters_with_pod:
-            if(diverter['analysis_label'] == 'Proposed POD'):
-                pod_upstream_diverters = app.db.get_proposed_pod_upstream_diverters(
-                    session_id = id,
-                    current_upstream_diverters = json.dumps(currently_upstream)
-                )
-            else:
-                pod_upstream_diverters = app.db.get_onstream_pod_upstream_diverters(
-                    water_right_id = int(diverter['wr_water_right_id']),
-                    current_upstream_diverters = json.dumps(currently_upstream)
-                )
-            pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
-            onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
-            currently_upstream.append({'order_upstream_to_downstream' : diverter['order_upstream_to_downstream'],
-                                       'lat': diverter['latitude'],
-                                       'lng': diverter['longitude']})
-        gage_ratio_raw = app.db.get_gage_size_and_mean_precip(wsr_session_id = id)
-        upstream_diverters_ts = generate_senior_diverter_ts_poi(
-            upstream_senior_diverters,
-            unimpaired_gage_data,
-            onstream_storage_upstream_diverters,
-            gage_ratio_raw,
-            session
-        )
-        upstream_diverters_with_pod_ts = generate_senior_diverter_ts_poi(
-            upstream_senior_diverters_with_pod,
-            unimpaired_gage_data,
-            onstream_storage_upstream_diverters,
-            gage_ratio_raw,
-            session
-        )
-        impair_result_diverters = impair_poi_time_series(
-            unimpaired_poi_ts,
-            upstream_diverters_ts
-        )
-        impair_result_diverters_with_pod = impair_poi_time_series(
-            unimpaired_poi_ts,
-            upstream_diverters_with_pod_ts
-        )
-        app.db.save_impaired_poi_timeseries(diverters = json.dumps(impair_result_diverters),
-                                            diverters_with_pod = json.dumps(impair_result_diverters_with_pod),
-                                            id = id,
-                                            poi_id = poi_id)
-    except Exception as e:
-        raise Exception({"message": f'{str(e)}\nUnable to generate impaired time-series', 'status_code': 400})
-    #Evaluation of reductions in instream flows needed for spawning, rearing, and passage
-    try:
-        # Get the data from the database
-        poi_ts = {
-            'unimpaired' : unimpaired_poi_ts,
-            'impaired_with_diverters' : impair_result_diverters,
-            'impaired_with_pod': impair_result_diverters_with_pod
-        }
-        season_start = session['seasonOfDiversionStart']
-        season_end = session['seasonOfDiversionEnd']
-        percentages = calculate_instream_flows_reduction(poi_ts, poi_threshold['minimumBypassFlow'], season_start, season_end)
-        daily_flow_study_results['spawningPassage'] = percentages
-    except Exception as e:
-        raise Exception({"message": f'{str(e)}\nUnable to calculate data for spawning, rearing and passage daily flow study', 'status_code': 400})
-    #Evaluations of reductions in instream flows needed for natural flow variability
-    try:
-        #Use the above poi_ts for this
-        peaks_and_ratios = calculate_natural_flow_variability(poi_ts)
-        daily_flow_study_results['naturalFlowVariability'] = peaks_and_ratios
-    except Exception as e:
-        raise Exception({"message": f'{str(e.__str__())}\nUnable to calculate data for natural flow variability daily flow study', 'status_code': 400})
-
-    # February median analysis - only performed for class III POD/ class II POI
-    try:
-        if(session['podStreamClass'] == 3 and poi['class'] == 2):
-            feb_median = calculate_feb_median(poi_ts['unimpaired'])
-            febPercentages = calculate_instream_flows_reduction(poi_ts, feb_median, season_start, season_end)
-            daily_flow_study_results['februaryMedian'] = febPercentages
-    except Exception as e:
-        raise Exception({"message": f'{str(e.__str__())}\nUnable to generate february median analysis', 'status_code': 400})
-
-    #Reload the session here to allow for asynchronous processing
+    #Initial set up, get the session and associated POI data, validate we are ready for a DFS
     session = app.db.get_cda_session_by_id(g.user_id, id)['session']
-    if('dailyFlowData' in session and session['dailyFlowData'] != None):
-        #If this has been done before (i.e session contains dfs data), append and save
-        daily_flow_data = session['dailyFlowData']
-        daily_flow_value = next((p for p in daily_flow_data if p["poiId"] == poi_id), None)
-        if(daily_flow_value is not None):
-            #If the poi already has an entry for this spot, then overwrite it
-            index = daily_flow_data.index(daily_flow_value)
-            daily_flow_data[index] = daily_flow_study_results
-        else:
-            #Otherwise append the data
-            daily_flow_data.append(daily_flow_study_results)
-        app.db.update_cda_session_by_id(g.user_id, id, {'dailyFlowData' : daily_flow_data})
-    else:
-        #Otherwise just make a new session entry for the daily flow study
-        app.db.update_cda_session_by_id(g.user_id, id, {'dailyFlowData' : [daily_flow_study_results]})
+    if(not ('thresholdTableData' in session) or session['thresholdTableData'] == None):
+        raise Exception({'message': "User must have calculated threshold data to perform daily flow study.", 'status_code': 404})
+    poi = next((p for p in session['pointsOfInterest'] if p["id"] == poi_id), None)
+    if(poi == None):
+            raise Exception(f"No poi at given index : {poi_id}")
+    poi_threshold = next((p for p in session['thresholdTableData'] if p["poiId"] == poi_id), None)
+    if(poi_threshold == None):
+        raise Exception(f"Poi at given index doesn't have associated threshold data : {poi_id}")
+    # Get ready for job, make UUID and db entry
+    dfs_uuid = uuid.uuid4()
+    app.db.create_dfs_job_entry(
+        session_id = id,
+        poi_id = poi_id,
+        dfs_uuid = str(dfs_uuid)
+    )
+    generate_output_process = Process(
+        target = generate_daily_flow_study_async,
+        args = (
+           id,
+           poi_id,
+           dfs_uuid,
+           g.user_id,
+           session,
+           poi_threshold
+        )
+    )
+    generate_output_process.start()
+    return {'jobID': dfs_uuid}, 202
 
-    return daily_flow_study_results, 200
+@projects.route('cda/sessions/<int:id>/poi/<int:poi_id>/job-id/<uuid:job_uuid>/daily-flow-status', methods=['GET'])
+@authorization_guard
+def check_daily_flow_job_status(
+    id,
+    poi_id,
+    job_uuid
+):
+    """
+    Check daily flow job status, if job complete, return data.
+    """
+    result_of_job = app.db.check_result_of_daily_flow_job(
+        session_id = id,
+        poi_id = poi_id,
+        job_id = str(job_uuid)
+    )
+    if(not result_of_job or 'job_status' not in result_of_job):
+        return {'status': 'Job not found'}, 404
+    elif(result_of_job['job_status'] == 'In Progress'):
+        return {'status': 'Job Still Processing'}, 202
+    elif(result_of_job['job_status'] == 'Failed'):
+        return {'status': f'Daily Flow Study Generation Failed for POI {poi_id}'}, 500
+    elif(result_of_job['job_status'] == 'Complete'):
+        return {'status': 'Success, Job Complete', 'results': result_of_job['output_data']}, 200
+    return {'status': 'Job not found'}, 404
 
 @projects.route('cda/sessions/<int:id>/package', methods=['GET'])
 @authorization_guard
