@@ -60,7 +60,6 @@ class Database:
         finally:
             self.pool.putconn(connection)
 
-
     def get_user_wsr_sessions(self, user_id):
         """
         Get all current sessions for the given user_id in the WSR module.
@@ -599,3 +598,25 @@ class Database:
         from queries.get_proposed_pod_upstream_diverters_query import get_proposed_pod_upstream_diverters_query
         result = self.execute_as_dict(get_proposed_pod_upstream_diverters_query, args=args)
         return result
+
+    def create_dfs_job_entry(self, **args):
+        """
+        New daily flow study is being loaded, create entry before it starts running.
+        """
+        from queries.create_dfs_job_entry import create_dfs_job_entry_query
+        self.execute(create_dfs_job_entry_query, args = args)
+
+    def insert_daily_flow_job_data_into_db(self, **args):
+        """
+        Insert the result of a daily flow job into the database
+        """
+        from queries.insert_daily_flow_job_data_into_db import insert_daily_flow_job_data_into_db_query
+        self.execute(insert_daily_flow_job_data_into_db_query, args = args)
+
+    def check_result_of_daily_flow_job(self, **args):
+        """
+        Check the result of a daily flow study job.
+        """
+        from queries.check_result_of_daily_flow_job import check_result_of_daily_flow_job_query
+        output = self.execute_as_dict(check_result_of_daily_flow_job_query, args=args, fetch_one=True)
+        return output
