@@ -1021,6 +1021,8 @@ def generate_diverter_yearly_output(
             available_flow = max(diversion, 0)
         else:
             available_flow = max(scaled_flow - total_upstream_diversions[i] - diverter_minimum_bypass_flow, 0)
+        if(pd.isna(available_flow)):
+            available_flow = 0
         # Check if in season
         if(not spans_water_year and (index_of_season_end >= i and index_of_season_start <= i)
            or spans_water_year and (index_of_season_end >= i or index_of_season_start <= i)):
