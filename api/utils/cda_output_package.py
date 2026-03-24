@@ -6,10 +6,13 @@ import os
 import time
 import zipfile
 from matplotlib.ticker import ScalarFormatter
+from database import Database
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 import requests
+import urllib
+import json
 
 from utils.cda_utils import (
     AFD_TO_CFS,
@@ -25,7 +28,6 @@ from utils.cda_utils import (
     plot_and_find_instantaneous_peak_flow,
     get_first_water_year_after_date
 )
-
 
 def generate_yearly_data(calculated_data):
     """
@@ -925,22 +927,17 @@ def peaks_threshold_output_execution(time_series, poi_id_str, output_package_csv
     for key in peaks_threshold_output_plots.keys():
         output_package_plots[key] = peaks_threshold_output_plots[key]
 
-def email_output_package_zip(email=None, attachment=None, file_name=None, project_id=None,
-                             poi_id=None):
+def email_user_blob_link(
+        email,
+        project_id,
+        download_url
+    ):
     # Ensure email isn't sent on unit test runs
     if(email == 'test'):
         return
-    sendgrid_apikey = os.environ["SENDGRID_API_KEY"]
-    if(poi_id is None):
-        sbj = """Your Cumulative Diversion Analysis Output Package is ready!"""
-    else:
-        sbj = f"""Your Cumulative Diversion Analysis Output Package for {poi_id} is ready!"""
-    if(poi_id is None):
-        msg = f"""The cumulative diversion analysis output package for project {project_id} has been processed.\n
-            Please review and visit northcoastwater.codefornature.org to change!"""
-    else:
-        msg = f"""The cumulative diversion analysis output package for project {project_id}, {poi_id} has been processed.\n
-            Please review and visit northcoastwater.codefornature.org to change!"""
+    sendgrid_apikey = os.getenv("SENDGRID_API_KEY")
+    sbj = "Your Cumulative Diversion Analysis Output Package is Ready!"
+    msg = f"Click <a href='{download_url}'>here</a> to download"
     payload = {
         "to": email,
         "toname": "Water Applicant",
@@ -950,7 +947,6 @@ def email_output_package_zip(email=None, attachment=None, file_name=None, projec
         "html": msg.replace("\n", "<br>\n"),
         "from": "california_watertool@foundryspatial.com",
         "fromname": "California North Coast Water Availability Tool",
-        "files[%s]" % file_name: attachment.read(),
     }
     r = requests.post(
         "https://api.sendgrid.com/api/mail.send.json",
@@ -1010,33 +1006,113 @@ def email_error(email=None, id=None, error_message=None):
     if(r.status_code != 200):
         raise Exception(f"ERROR - Unable to send email for project {id} after retries")
 
+def upload_file_to_blob(
+        file,
+        project_id,
+        expiry_hours = 24
+    ):
+    """
+    Upload file to blob storage and a string for users to download.
+
+    Args:
+        file - file to upload
+        project_id - current project id
+        expiry_hours - how long the url is valid for
+    """
+    from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
+    # Create the BlobServiceClient using env vars
+    storage_access_key = os.getenv('STORAGE_ACCESS_KEY')
+    storage_container = os.getenv('STORAGE_CONTAINER')
+    account_name = 'cwatoutputpackages'
+    connection_string = f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={storage_access_key};EndpointSuffix=core.windows.net"
+    blob_service_client = BlobServiceClient.from_connection_string(
+        connection_string
+    )
+
+    # Build file name
+    now_iso = datetime.datetime.now().isoformat()
+    blob_name = f'CDA_Output_Package_{project_id}_{now_iso}.zip'
+
+    blob_client = blob_service_client.get_blob_client(
+        container=storage_container,
+        blob=blob_name
+    )
+
+    blob_client.upload_blob(file, overwrite=True)
+
+    # Generate the SAS token with read-only permission and an expiry time
+    sas_token = generate_blob_sas(
+        account_name=blob_client.account_name,
+        container_name=blob_client.container_name,
+        blob_name=blob_client.blob_name,
+        account_key=storage_access_key,
+        permission=BlobSasPermissions(read=True),
+        expiry=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=expiry_hours),
+        start_time=datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    # Build and return the full SAS URL
+    download_url = f"https://{account_name}.blob.core.windows.net/{storage_container}/{urllib.parse.quote_plus(blob_name)}?{sas_token}"
+    return download_url
 
 def generate_cda_output_package(
-    gage_csvs,
-    raw_gage_timeseries,
-    unimpaired_gage_data,
-    poi_unimpaired,
-    poi_time_seriess,
-    cda_session,
-    wsr_senior_diverters,
-    diverters_upstream_of_onstream_storage,
-    gage_ratio_raw,
     email,
-    id
+    id,
+    user_id
 ):
     """
     Generate the CDA output package, called as an asynchronous function.
     Emails the resulting output package to the user and stores a link in their session.
     Args:
-        gage_csvs - data from gage_senior_diverter_csv database table
-        raw_gage_timeseries - time-series of gage readings
-        unimpaired_gage_data - time-series of gage readings unimpaired with upstream diversions
-        poi_unimpaired - time-series of poi data scaled from unimpaired_gage_data
-        poi_time_seriess - list of poi time series including impairments
-        cda_session - user cda session data
-        wsr_senior_diverters - senior diverters used to impair POIs
         email - user email
+        id - project id
+        user_id - user ID
     """
+    try:
+        #Get necessary data from database first off
+        db = Database()
+        gage_csvs = db.get_gage_senior_diverter_csv_by_user_id(user_id, id)
+        raw_gage_timeseries = db.get_raw_gage_data(user_id, id)
+        if(raw_gage_timeseries == None):
+            raise Exception(f"Unable to find gage time series data for selected gage.")
+        unimpaired_gage_data = db.get_unimpaired_gage_data(user_id, id)
+        if(unimpaired_gage_data == None):
+            raise Exception("Must have uploaded gage diverters for output package formatting.")
+        poi_time_seriess = {}
+        poi_unimpaired = {}
+        cda_session = db.get_cda_session_by_id(user_id, id)['session']
+        wsr_senior_diverters = db.get_senior_diverter_csv_by_user_id(user_id, id)['csv_data']
+        if(wsr_senior_diverters == {}):
+            raise Exception("No wsr senior diverters found - is the wsr section complete?")
+        diverters_upstream_of_onstream_storage = {}
+        for poi in cda_session['pointsOfInterest']:
+            poi_time_seriess[poi['id']] = db.get_poi_ts(user_id, id, poi['id'])
+            poi_unimpaired[poi['id']] = poi_time_seriess[poi['id']]['unimpaired']
+            (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, cda_session)
+            currently_upstream = []
+            onstream_storage_upstream_diverters = {}
+            for diverter in upstream_senior_diverters_with_pod:
+                if(diverter['analysis_label'] == 'Proposed POD'):
+                    pod_upstream_diverters = db.get_proposed_pod_upstream_diverters(
+                        session_id = id,
+                        current_upstream_diverters = json.dumps(currently_upstream)
+                    )
+                else:
+                    pod_upstream_diverters = db.get_onstream_pod_upstream_diverters(
+                        water_right_id = int(diverter['wr_water_right_id']),
+                        current_upstream_diverters = json.dumps(currently_upstream)
+                    )
+                pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
+                onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
+                currently_upstream.append({'order_upstream_to_downstream' : diverter['order_upstream_to_downstream'],
+                                        'lat': diverter['latitude'],
+                                        'lng': diverter['longitude']})
+            diverters_upstream_of_onstream_storage[poi['id']] = onstream_storage_upstream_diverters
+        gage_ratio_raw = db.get_gage_size_and_mean_precip(wsr_session_id = id)
+
+    except Exception as e:
+        email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to get data from the database.')
+
     output_package_csvs= {}
     output_package_plots = {}
     try:
@@ -1139,53 +1215,17 @@ def generate_cda_output_package(
             with open('zipfiles/CDA-Gage-Senior-Diverters-Help.pdf', 'rb') as file:
                 zipFileByteObject.writestr('CDA Gage Senior Diverters Help.pdf', file.read())
 
-        #Risk of exceeding data sendgrid size of 30 MB, zip separately
-        if(int(file_like.__sizeof__()) > 25000000):
-            #Do per POI
-            already_output = []
-            output_package_plot_names = list(output_package_plots.keys())
-            for poi_id in poi_time_seriess.keys():
-                file_like = BytesIO()
-                with zipfile.ZipFile(file_like, mode='w') as zipFileByteObject:
-                    #Put CSVs in zip
-                    for file_name in output_package_csvs.keys():
-                        if(f'poi_{poi_id + 1}' in file_name):
-                            prepared_csv = output_package_csvs[file_name].to_csv(quotechar='"', quoting=csv.QUOTE_NONNUMERIC, index=False)
-                            zipFileByteObject.writestr(f'{file_name}.csv', prepared_csv)
-                            already_output.append(file_name)
-                    #Put PNGs in zip
-                    for file_name in output_package_plots.keys():
-                        if(f'poi_{poi_id + 1}' in file_name):
-                            zipFileByteObject.writestr(f'{file_name}.png', output_package_plots[file_name].getvalue())
-                            already_output.append(file_name)
-                file_like.seek(0)
-                email_output_package_zip(email, file_like, file_name=f'CDA_Output_Package_poi_{poi_id + 1}.zip', project_id=id, poi_id=f"POI {poi_id + 1}")
-                del file_like
-            #Clean up leftover files
-            file_like = BytesIO()
-            with zipfile.ZipFile(file_like, mode='w') as zipFileByteObject:
-                #Put CSVs in zip
-                for file_name in output_package_csvs.keys():
-                    if(not file_name in already_output):
-                        prepared_csv = output_package_csvs[file_name].to_csv(quotechar='"', quoting=csv.QUOTE_NONNUMERIC, index=False)
-                        zipFileByteObject.writestr(f'{file_name}.csv', prepared_csv)
-                #Put PNGs in zips
-                for file_name in output_package_plot_names:
-                    if(not file_name in already_output):
-                        zipFileByteObject.writestr(f'{file_name}.png', output_package_plots[file_name].getvalue())
-                #Add documentation to gage output
-                with open('zipfiles/Cumulative-Diversion-Analysis-Output-Package.pdf', 'rb') as file:
-                    zipFileByteObject.writestr('Cumulative-Diversion-Analysis-Output-Package.pdf', file.read())
+        file_like.seek(0)
+        download_url = upload_file_to_blob(
+            file = file_like,
+            project_id=id
+        )
 
-                #Add gage senior diverters help to zip
-                with open('zipfiles/CDA-Gage-Senior-Diverters-Help.pdf', 'rb') as file:
-                    zipFileByteObject.writestr('CDA Gage Senior Diverters Help.pdf', file.read())
-            file_like.seek(0)
-            email_output_package_zip(email, file_like, file_name=f'CDA_Output_Package_gage.zip', project_id=id, poi_id="Gage")
-            del file_like
-        else:
-            file_like.seek(0)
-            email_output_package_zip(email, file_like, file_name='CDA_Output_Package.zip', project_id=id)
+        email_user_blob_link(
+            email,
+            id,
+            download_url
+        )
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nFailed to generate and send emails.')
         return
