@@ -32,7 +32,6 @@ from utils.cda_utils import (
     calculate_mcd,
     calculate_yearly_mean,
     generate_recurrence_intervals,
-    get_senior_diverters_upstream_of_poi,
     overwrite_with_wsr_diverters,
     peaks_and_threshold,
     plot_and_find_instantaneous_peak_flow,
@@ -814,54 +813,11 @@ def generate_cda_session_package(params, id):
         6. Generates the overall daily flow study summary output csvs in a user-friendly format
     """
     email, = params
-    try:
-        #Get necessary data from database first off
-        gage_csvs = app.db.get_gage_senior_diverter_csv_by_user_id(g.user_id, id)
-        raw_gage_timeseries = app.db.get_raw_gage_data(g.user_id, id)
-        if(raw_gage_timeseries == None):
-            raise Exception(f"Unable to find gage time series data for selected gage.")
-        unimpaired_gage_data = app.db.get_unimpaired_gage_data(g.user_id, id)
-        if(unimpaired_gage_data == None):
-            raise Exception("Must have uploaded gage diverters for output package formatting.")
-        poi_time_seriess = {}
-        poi_unimpaired = {}
-        cda_session = app.db.get_cda_session_by_id(g.user_id, id)['session']
-        wsr_senior_diverters = app.db.get_senior_diverter_csv_by_user_id(g.user_id, id)['csv_data']
-        if(wsr_senior_diverters == {}):
-            raise Exception("No wsr senior diverters found - is the wsr section complete?")
-        diverters_upstream_of_onstream_storage = {}
-        for poi in cda_session['pointsOfInterest']:
-            poi_time_seriess[poi['id']] = app.db.get_poi_ts(g.user_id, id, poi['id'])
-            poi_unimpaired[poi['id']] = poi_time_seriess[poi['id']]['unimpaired']
-            (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, cda_session)
-            currently_upstream = []
-            onstream_storage_upstream_diverters = {}
-            for diverter in upstream_senior_diverters_with_pod:
-                if(diverter['analysis_label'] == 'Proposed POD'):
-                    pod_upstream_diverters = app.db.get_proposed_pod_upstream_diverters(
-                        session_id = id,
-                        current_upstream_diverters = json.dumps(currently_upstream)
-                    )
-                else:
-                    pod_upstream_diverters = app.db.get_onstream_pod_upstream_diverters(
-                        water_right_id = int(diverter['wr_water_right_id']),
-                        current_upstream_diverters = json.dumps(currently_upstream)
-                    )
-                pod_upstream_diverters = [int(x['order_upstream_to_downstream']) for x in pod_upstream_diverters]
-                onstream_storage_upstream_diverters[diverter['order_upstream_to_downstream']] = pod_upstream_diverters
-                currently_upstream.append({'order_upstream_to_downstream' : diverter['order_upstream_to_downstream'],
-                                        'lat': diverter['latitude'],
-                                        'lng': diverter['longitude']})
-            diverters_upstream_of_onstream_storage[poi['id']] = onstream_storage_upstream_diverters
-        gage_ratio_raw = app.db.get_gage_size_and_mean_precip(wsr_session_id = id)
-
-    except Exception as e:
-        raise Exception({"message": f'{str(e)}\nUnable to get data from the database.', 'status_code': 404})
     # Generate output package from given data
     if(email != 'test'):
         generate_output_process = Process(
             target = generate_cda_output_package,
-            args = (gage_csvs, raw_gage_timeseries,unimpaired_gage_data, poi_unimpaired, poi_time_seriess,cda_session,wsr_senior_diverters,diverters_upstream_of_onstream_storage, gage_ratio_raw, email,id)
+            args = (email,id, g.user_id)
         )
         generate_output_process.start()
     return "emailing", 202
