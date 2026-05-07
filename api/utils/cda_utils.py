@@ -463,8 +463,8 @@ def calculate_cda_intermediate_values(senior_diverters_df):
     #Turn use codes into a workable array
     calculated_intermediate_values['use_codes'] = calculated_intermediate_values.apply(format_use_codes, axis=1)
 
-    calculated_intermediate_values = calculated_intermediate_values.replace({
-                                                                            pd.NA: np.nan})
+    calculated_intermediate_values = calculated_intermediate_values.replace({pd.NA: np.nan})
+
     calculated_intermediate_values.fillna(np.nan, inplace=True)
 
     #1. Create direct_div_season_start
@@ -527,7 +527,7 @@ def calculate_yearly_mean(unimpaired_gage_data):
             yearly mean value of the supplied data
     """
     df = pd.DataFrame.from_dict(unimpaired_gage_data)
-    df = df.fillna(method='ffill')
+    df = df.ffill()
 
     df['date'] = pd.to_datetime(df['date'], dayfirst=True)
 
@@ -544,7 +544,7 @@ def calculate_feb_median(data):
             February median value
     """
     df = pd.DataFrame.from_dict(data)
-    df = df.fillna(method='ffill')
+    df = df.ffill()
 
     df['date'] = pd.to_datetime(df['date'], dayfirst=True)
     february_data = df[(df['date'].dt.month == 2)]
@@ -595,7 +595,7 @@ def peaks_and_threshold(unimpaired_gage_data, output_package = False):
             threshold - value used as a threshold
     """
     df = pd.DataFrame.from_dict(unimpaired_gage_data)
-    df = df.fillna(method='ffill')
+    df = df.ffill()
 
     unthresholded_peaks = []
     #Go through and find peaks using the sliding window (max in window = peak)
@@ -807,7 +807,7 @@ def generate_yearly_ts_from_row(row):
                 start=dt_date(2019, 3, 15),
                 end=dt_date(2019, 4, 30)
             )
-            if(row["direct_div_season_start"] is None or row["direct_div_season_end"] is None):
+            if(pd.isna(row["direct_div_season_start"]) or pd.isna(row["direct_div_season_end"])):
                 # If there aren't diversion dates (storage but storage outside of season), just use the frost range
                 diversion_range = frost_range
             else:
@@ -823,13 +823,13 @@ def generate_yearly_ts_from_row(row):
         frost_per_day = row['frost_demand_af']/overlap
         for i in range(overlap):
             total_demand[i*2 + first_index] = total_demand[i*2 + first_index] + frost_per_day
-    if(row['seasonal_demand_af'] != None and row['seasonal_demand_af'] > 0):
+    if(pd.notna(row['seasonal_demand_af']) and row['seasonal_demand_af'] > 0):
         #We want to downscale or upscale to user-entered demand if it exists
         overall_demand = row['max_storage_af'] + row['diversion_amount_af'] + row['frost_demand_af']
         ratio = row['seasonal_demand_af']/overall_demand
         for i in range(len(total_demand)):
             total_demand[i] = total_demand[i]* ratio
-    elif(row['face_amount_af'] is not None):
+    elif(pd.notna(row['face_amount_af'])):
         #scale down so total is not greater than face_amount_af
         total_sum_af = sum(total_demand)
         if(row['face_amount_af'] < total_sum_af):
@@ -842,7 +842,7 @@ def generate_yearly_ts_from_row(row):
     return total_demand
 
 def get_first_water_year_after_date(date):
-    if date is None:
+    if pd.isna(date):
         return None
     year = int(date.split('-')[0])
     month = int(date.split('-')[1])
@@ -1115,7 +1115,8 @@ def generate_senior_diverter_ts_poi(
     water_year_total_diversions = {}
     water_year_diversions = {}
     proposed_project_ratio = next((p for p in session['thresholdTableData'] if p["poiId"] == -1), None)['ratio']
-    unimpaired_gage_df.groupby('water_year').apply(lambda year, senior_diverters_df, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw, proposed_project_ratio:
+    columns = unimpaired_gage_df.columns
+    unimpaired_gage_df.groupby('water_year')[columns].apply(lambda year, senior_diverters_df, water_year_total_diversions, water_year_diversions, onstream_storage_upstream_diverters, gage_ratio_raw, proposed_project_ratio:
         generate_diversions_for_water_year(
             year,
             senior_diverters_df,
@@ -1196,7 +1197,7 @@ def calculate_peak_flow_yearly_method(unimpaired_gage_data):
             1.5 year instantaneous peak.
     """
     df = pd.DataFrame.from_dict(unimpaired_gage_data)
-    df = df.fillna(method='ffill')
+    df = df.ffill()
 
     yearly_peaks = calculate_yearly_peaks(df)
     yearly_peaks.sort(reverse=True)
@@ -1274,7 +1275,7 @@ def scale_gage_ts_to_poi(unimpaired_gage_data, ratio):
     """
     df = pd.DataFrame.from_dict(unimpaired_gage_data)
     # There will be values which need to be ffilled around leap year edge cases, etc.
-    df.fillna(method='ffill', inplace=True)
+    df.ffill(inplace=True)
     if(ratio < 0):
         raise Exception("Can't enter negative ratio to scale gage time-series")
     if('daily_flow' in df.columns):
@@ -1293,13 +1294,13 @@ def generate_pod_diversion_row(senior_diverter_df, cda_session):
     #Squeeze into pandas series so that we can operate as a series
     pod_row = senior_diverter_df.loc[senior_diverter_df.analysis_label == "Proposed POD"].squeeze()
     if('seasonOfDiversionStart' in cda_session):
-        start_datetime = pd.to_datetime(cda_session["seasonOfDiversionStart"], dayfirst=True).tz_localize(None)
+        start_datetime = datetime.strptime(cda_session["seasonOfDiversionStart"],'%Y-%m-%dT%H:%M:%S.%fZ')
         pod_row['direct_div_season_start_month'] = start_datetime.month
         pod_row['direct_div_season_start_day'] = start_datetime.day
     else:
         raise Exception("No season of diversion start in given cda session!")
     if('seasonOfDiversionEnd' in cda_session):
-        end_datetime = pd.to_datetime(cda_session["seasonOfDiversionEnd"], dayfirst=True).tz_localize(None)
+        end_datetime = datetime.strptime(cda_session["seasonOfDiversionEnd"],'%Y-%m-%dT%H:%M:%S.%fZ')
         pod_row['direct_div_season_end_month'] = end_datetime.month
         pod_row['direct_div_season_end_day'] = end_datetime.day
     else:
@@ -1376,7 +1377,7 @@ def get_senior_diverters_upstream_of_poi(senior_diverter_csv, poi, cda_session):
         raise Exception("Cannot have all diversions for POI upstream of the POD!")
     df = df.iloc[0: index_of_wr+1]
     calculated_df = calculate_cda_intermediate_values(df)
-    only_senior_diverters = calculated_df.drop(axis=1, index = index_of_pod)
+    only_senior_diverters = calculated_df.drop(index = index_of_pod)
     # mock data coming from database using psycopg2 datatype so the pipeline remains the same
     converted_diverters = [RealDictRow(row) for row in only_senior_diverters.to_dict(orient='records')]
     converted_diverters_with_pod = [RealDictRow(row) for row in calculated_df.to_dict(orient='records')]
@@ -1454,9 +1455,9 @@ def calculate_instream_flows_reduction(daily_time_seriess, threshold, start_date
     diverter_impaired_df = pd.DataFrame.from_dict(daily_time_seriess['impaired_with_diverters'])
     pod_impaired_df = pd.DataFrame.from_dict(daily_time_seriess['impaired_with_pod'])
     # if any values are nan (sometimes happens) forward-fill
-    unimpaired_poi_df.fillna(method='ffill', inplace=True)
-    diverter_impaired_df.fillna(method='ffill', inplace=True)
-    pod_impaired_df.fillna(method='ffill', inplace=True)
+    unimpaired_poi_df.ffill(inplace=True)
+    diverter_impaired_df.ffill(inplace=True)
+    pod_impaired_df.ffill(inplace=True)
     unimpaired_month_exceedances = [0] * len(months_to_calculate)
     diverter_month_exceedances = [0] * len(months_to_calculate)
     pod_month_exceedances = [0] * len(months_to_calculate)

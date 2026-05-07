@@ -279,7 +279,7 @@ def filter_out_uns(row):
     Filter out UN's (water rights not necessary for analysis)
     """
     application_id = row['application_number']
-    return application_id is None or not application_id.startswith('UN')
+    return pd.isna(application_id) or not application_id.startswith('UN')
 
 def add_comment_if_wr_inactive(row):
     """
@@ -511,7 +511,7 @@ def get_wsr_frequency_analysis(application_flow_frequency_raw, application_numbe
     application_flow_frequency['fitted_curve'] = optimizedParameters[0]*application_flow_frequency['frequency'].astype(float)+optimizedParameters[1]*application_flow_frequency['frequency'].astype(float)**2+optimizedParameters[2]*application_flow_frequency['frequency'].astype(float)**3+optimizedParameters[3]*application_flow_frequency['frequency'].astype(float)**4+optimizedParameters[4]
 
     r2 = r2_score(application_flow_frequency['seasonal_volume_af'], application_flow_frequency['fitted_curve'])
-    r2 = r2.round(4)
+    r2 = round(r2, 4)
     fig = Figure(figsize=(10, 7), dpi=80)
     ax = fig.subplots()
     ax.plot(application_flow_frequency['frequency'], application_flow_frequency['fitted_curve'], label="fit", color = 'green')
@@ -520,7 +520,7 @@ def get_wsr_frequency_analysis(application_flow_frequency_raw, application_numbe
         linewidth=2)
 
     fig.gca().invert_xaxis()
-    fig.suptitle("Flow frequency analysis at {} \n $y={}*x+{}*x^2+{}*x^3+{}*x^4+{}$ \n $R^2 = {}$".format(application_number,optimizedParameters[0].round(2),optimizedParameters[1].round(2),optimizedParameters[2].round(2),optimizedParameters[3].round(2),optimizedParameters[4].round(2), r2))
+    fig.suptitle("Flow frequency analysis at {} \n $y={}*x+{}*x^2+{}*x^3+{}*x^4+{}$ \n $R^2 = {}$".format(application_number,round(optimizedParameters[0], 2),round(optimizedParameters[1], 2),round(optimizedParameters[2], 2),round(optimizedParameters[3], 2),round(optimizedParameters[4], 2), r2))
     fig.supxlabel('Frequency of Occurrence')
     fig.supylabel('Discharge, acre-ft')
     ax.grid(color='grey', linestyle='-', linewidth=0.25)
@@ -1183,7 +1183,13 @@ def sort_using_nhd_list_and_build_output(upstream_df, unsorted_df, nhd, pod_lat,
     downstream_pods = downstream_pods.merge(upstream_df, on='nhdplusid', how='left')
     downstream_pods.sort_values(['nhd_order', 'st_calc_distance'], inplace=True, ascending=[False, True])
     downstream_pods['analysis_label_map'] = downstream_pods['analysis_label_map'].apply(lambda x: x if pd.notna(x) else 5)
-    overall_output = pd.concat([above_pod, isolated_stream_reach, pod_df, downstream_pods])
+    to_concat = [above_pod, isolated_stream_reach, pod_df, downstream_pods]
+    to_concat_filtered = []
+    for df in to_concat:
+        df = df.fillna(np.nan).replace([np.nan], [None])
+        if(not df.empty):
+            to_concat_filtered.append(df)
+    overall_output = pd.concat(to_concat_filtered)
     overall_output['order_upstream_to_downstream'] = list(range(1, len(overall_output.index)+1))
     min_mainstem_order = min(overall_output[overall_output['analysis_label_map'] == 4]['order_upstream_to_downstream']) if(not overall_output[overall_output['analysis_label_map'] == 4].empty) else max(overall_output['order_upstream_to_downstream'])
     overall_output['analysis_label'] = overall_output.apply(lambda row, min_mainstem_order: analysis_label_map_to_str(row, min_mainstem_order),

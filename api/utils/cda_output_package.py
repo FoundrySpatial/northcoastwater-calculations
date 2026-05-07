@@ -144,9 +144,9 @@ def peaks_over_threshold_output(
         dictionary of output dataframes, and png files of associated plots
     """
     full_timeseries_df = pd.DataFrame.from_dict(unimpaired_gage_data)
-    full_timeseries_df = full_timeseries_df.fillna(method="ffill")
+    full_timeseries_df = full_timeseries_df.ffill()
     full_timeseries_df["is_peak"] = [0] * len(full_timeseries_df.index)
-    full_timeseries_df["peak_value"] = [0] * len(full_timeseries_df.index)
+    full_timeseries_df["peak_value"] = [0.0] * len(full_timeseries_df.index)
     for index, row in full_timeseries_df.iterrows():
         current_flow = float(row['daily_flow'])
         start = max(index-SLIDING_WINDOW_LOOKBACK, 0)
@@ -452,7 +452,51 @@ def generate_poi_senior_diverters_output(poi_id, upstream_senior_diverters_with_
         Dictionary containing dataFrame-formatted csv data
     """
     # Start with generating a yearly diversion for each of the rows
-    senior_diverters_df = pd.DataFrame(upstream_senior_diverters_with_pod)
+    {'overlapping_days_of_direct_diversion_and_policy_season': 0}
+    senior_diverters_df = pd.DataFrame(
+        upstream_senior_diverters_with_pod
+        # dtype = {
+        #     'appl_pod': 'str',
+        #     'comments': 'str',
+        #     'latitude': 'float64',
+        #     'pod_type': 'str',
+        #     'latitude': 'float64',
+        #     'pod_count': 'int64',
+        #     'use_codes': 'str',
+        #     'source_name': 'str',
+        #     'analysis_label': 'str',
+        #     'face_amount_af': 'float64',
+        #     'max_storage_af': 'float64',
+        #     'days_of_storage': 'int64',
+        #     'frost_demand_af': 'float64',
+        #     'annual_precip_in': 'float64',
+        #     'water_right_type': 'str',
+        #     'days_of_diversion': 'int64',
+        #     'wr_water_right_id': 'int64',
+        #     'application_number': 'str',
+        #     'drainage_area_sqmi': 'float64',
+        #     'seasonal_demand_af': 'float64',
+        #     'storage_season_send': 'str',
+        #     'water_right_status': 'str',
+        #     'wr_seasonal_demand': 'float64',
+        #     'diversion_amount_af': 'float64',
+        #     'diversion_per_day_af': 'float64',
+        #     'storage_season_start': 'str',
+        #     'direct_div_season_end': 'str',
+        #     'direct_div_season_start': 'str',
+        #     'minimum_bypass_flow_cfs': 'float64',
+        #     'priority_date': 'str',
+        #     'application_primary_owner': 'str',
+        #     'max_rate_of_diversion_cfs': 'float64',
+        #     'order_upstream_to_downstream': 'int64',
+        #     'overwrite_seasonal_demand_af_justification': 'str',
+        #     'overlapping_days_of_proposed_and_frost_season': 'int64',
+        #     'overlapping_days_of_storage_and_policy_season': 'str',
+        #     'overlapping_days_of_proposed_and_policy_season': 'int64',
+        #     'overlapping_proposed_and_days_of_direct_diversion': 'int64',
+        #     'overlapping_days_of_direct_diversion_and_policy_season': 'int64'
+        # }
+    )
     senior_diverters_df["use_codes"] = senior_diverters_df.apply(
         format_use_codes, axis=1
     )
@@ -529,7 +573,16 @@ def generate_poi_senior_diverters_output(poi_id, upstream_senior_diverters_with_
     cols = right_order_output_columns
     output_df = output_df[cols]
 
-    output_df.fillna(0, inplace=True)
+    for col in output_df.columns:
+        # Fill columns corectly based on their dtype
+        if output_df[col].dtype == 'str':
+            output_df[col] = output_df[col].fillna('')
+
+        elif pd.api.types.is_numeric_dtype(output_df[col].dtype):
+            output_df[col] = output_df[col].fillna(0)
+
+        else:
+            output_df[col] = output_df[col].fillna(None)
     #put proposed POD at the end
     pod_row = output_df[output_df["analysis_label"] == "Proposed POD"].iloc[0]
     output_df = output_df.shift(-1)
@@ -722,15 +775,13 @@ def generate_yearly_flow_output_csv(poi_id, daily_time_seriess):
     Returns:
         dict containing reference to filename / data
     """
-    unimpaired_poi_df = pd.DataFrame.from_dict(daily_time_seriess["unimpaired"]).fillna(
-        method="ffill"
-    )
+    unimpaired_poi_df = pd.DataFrame.from_dict(daily_time_seriess["unimpaired"]).ffill()
     diverter_impaired_df = pd.DataFrame.from_dict(
         daily_time_seriess["impaired_with_diverters"]
-    ).fillna(method="ffill")
+    ).ffill()
     pod_impaired_df = pd.DataFrame.from_dict(
         daily_time_seriess["impaired_with_pod"]
-    ).fillna(method="ffill")
+    ).ffill()
 
     (yearly_peaks_unimpaired, years_data) = calculate_yearly_peaks(
         unimpaired_poi_df, output_package=True
