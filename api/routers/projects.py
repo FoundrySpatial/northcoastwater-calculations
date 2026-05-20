@@ -483,6 +483,10 @@ def update_project_session(id):
             session = app.db.get_wsr_session_by_id(g.user_id, id)['session']
             nhd_plus_id = session['nhdId']
             app.db.generate_watershed_for_pod_and_store(json.dumps(data['pointOfDiversion']['geometry']), nhd_plus_id, id)
+            pod_rain_and_area = app.db.get_pod_size_and_mean_precip_uncalculated(wsr_session_id = id)
+            vals = {'watershedAnnualPrecip': pod_rain_and_area['map_1991_2020_in'], 'watershedArea': pod_rain_and_area['drainage_area_sqmi']}
+            result = app.db.update_wsr_session_by_id(g.user_id, id, vals)
+            result = dict(result) | vals
         return result, 200
     # Catch for json schema errors. Pass along the schema error message, may be useful for client side warnings.
     except ValidationError as error:
