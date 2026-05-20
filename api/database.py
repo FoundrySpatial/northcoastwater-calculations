@@ -553,12 +553,28 @@ class Database:
         data = self.execute_as_dict(get_diverter_size_and_mean_precip_query, args, fetch_one=False)
         return data
 
+    def get_pod_size_and_mean_precip_uncalculated(self, **args):
+        """
+        Gets the pod size and mean precipitation values to get pod watershed data
+        """
+        from queries.get_pod_size_and_mean_precip_uncalculated import get_pod_size_and_mean_precip_uncalculated_query
+        data = self.execute_as_dict(get_pod_size_and_mean_precip_uncalculated_query, args, fetch_one=True)
+        return data
+
     def get_pod_size_and_mean_precip(self, **args):
         """
         Gets the pod size and mean precipitation values to get pod watershed data
         """
-        from queries.get_pod_size_and_mean_precip import get_pod_size_and_mean_precip_query
-        data = self.execute_as_dict(get_pod_size_and_mean_precip_query, args, fetch_one=True)
+        result = self.execute_as_dict(f"SELECT wsr_session FROM cwat_app.project_sessions WHERE id = %s", [args['wsr_session_id']], fetch_one=True)['wsr_session']
+        # If it's in the session, get it from the session
+        if('watershedArea' in result and 'watershedAnnualPrecip' in result):
+            return {
+                'map_1991_2020_in' : float(result['watershedAnnualPrecip']),
+                'drainage_area_sqmi': float(result['watershedArea'])
+            }
+        # otherwise, generate
+        from queries.get_pod_size_and_mean_precip_uncalculated import get_pod_size_and_mean_precip_uncalculated_query
+        data = self.execute_as_dict(get_pod_size_and_mean_precip_uncalculated_query, args, fetch_one=True)
         return data
 
     def generate_watershed_for_poi_and_store(self, **args):
