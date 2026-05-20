@@ -13,6 +13,7 @@ from matplotlib.figure import Figure
 import requests
 import urllib
 import json
+import shutil
 
 from utils.cda_utils import (
     AFD_TO_CFS,
@@ -28,6 +29,8 @@ from utils.cda_utils import (
     plot_and_find_instantaneous_peak_flow,
     get_first_water_year_after_date
 )
+
+STREAMING_CHUNK_SIZE = 1024 * 1024
 
 def generate_yearly_data(calculated_data):
     """
@@ -968,15 +971,15 @@ def generate_daily_flow_summary_csvs(cda_session):
             ] = feb_median_df
     return output_csvs
 
-def peaks_threshold_output_execution(time_series, poi_id_str, output_package_csvs, output_package_plots):
+def peaks_threshold_output_execution(id, time_series, poi_id_str, output_package_csvs, output_package_plots):
     peaks_thresholds = peaks_and_threshold(time_series, output_package=True)
     recurrence_intervals = generate_recurrence_intervals(peaks_thresholds['peaks'], peaks_thresholds['record_years'])
     instantaneous_flow = plot_and_find_instantaneous_peak_flow(peaks_thresholds['peaks'], recurrence_intervals)
     (peaks_threshold_output_csvs, peaks_threshold_output_plots) = peaks_over_threshold_output(peaks_thresholds, recurrence_intervals, instantaneous_flow, time_series, poi_id_str=poi_id_str)
-    for key in peaks_threshold_output_csvs.keys():
-        output_package_csvs[key] = peaks_threshold_output_csvs[key]
-    for key in peaks_threshold_output_plots.keys():
-        output_package_plots[key] = peaks_threshold_output_plots[key]
+    output_package_csvs.extend(write_csvs_to_disk(id, peaks_threshold_output_csvs))
+    del peaks_threshold_output_csvs
+    output_package_plots.extend(write_plots_to_disk(id, peaks_threshold_output_plots))
+    del peaks_threshold_output_plots
 
 def email_user_blob_link(
         email,
@@ -1057,13 +1060,73 @@ def email_error(email=None, id=None, error_message=None):
     if(r.status_code != 200):
         raise Exception(f"ERROR - Unable to send email for project {id} after retries")
 
+def write_csvs_to_disk(
+        project_id,
+        file_list
+    ):
+    """
+    Write the given generated csv data to the disk
+
+    Args:
+        project_id : cda session id of given project
+        file_list : dict of {file_name: <pandas df of data>}
+    """
+    if(not os.path.exists('./output_package_files')):
+        os.mkdir('./output_package_files')
+    if(not os.path.exists(f'./output_package_files/{project_id}')):
+        os.mkdir(f'./output_package_files/{project_id}')
+    saved_files = []
+    for file_to_save in file_list.keys():
+        file_path_to_save = f'./output_package_files/{project_id}/{file_to_save}.csv'
+        with open(file_path_to_save, 'w+') as fh:
+            file_list[file_to_save].to_csv(fh, quotechar='"', quoting=csv.QUOTE_NONNUMERIC, index=False)
+        saved_files.append(file_path_to_save)
+    return saved_files
+
+def write_plots_to_disk(
+        project_id,
+        file_list
+    ):
+    """
+    Write the given generated plot data to the disk
+
+    Args:
+        project_id : cda session id of given project
+        file_list : dict of {file_name: <bytesIO of binary plot data>}
+    """
+    if(not os.path.exists('./output_package_files')):
+        os.mkdir('./output_package_files')
+    if(not os.path.exists(f'./output_package_files/{project_id}')):
+        os.mkdir(f'./output_package_files/{project_id}')
+    saved_files = []
+    for file_to_save in file_list.keys():
+        file_path_to_save = f'./output_package_files/{project_id}/{file_to_save}.png'
+        with open(file_path_to_save, 'wb+') as fh:
+            fh.write(file_list[file_to_save].getbuffer())
+        saved_files.append(file_path_to_save)
+    return saved_files
+
+def clear_output_files(
+    project_id
+):
+    """
+    Clear all saved project files on error or completion
+
+    Args:
+        project_id = project output package is being generated for
+    """
+    files_dir = f'./output_package_files/{project_id}'
+    shutil.rmtree(files_dir, ignore_errors=True)
+    zips_dir = f'./output_package_zips/{project_id}'
+    shutil.rmtree(zips_dir, ignore_errors=True)
+
 def upload_file_to_blob(
         file,
         project_id,
         expiry_hours = 24
     ):
     """
-    Upload file to blob storage and a string for users to download.
+    Upload file to blob storage and generate a string for users to download.
 
     Args:
         file - file to upload
@@ -1088,8 +1151,8 @@ def upload_file_to_blob(
         container=storage_container,
         blob=blob_name
     )
-
-    blob_client.upload_blob(file, overwrite=True)
+    with open(file, 'rb') as data:
+        blob_client.upload_blob(data, overwrite=True)
 
     # Generate the SAS token with read-only permission and an expiry time
     sas_token = generate_blob_sas(
@@ -1163,15 +1226,20 @@ def generate_cda_output_package(
 
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to get data from the database.')
+        clear_output_files(id)
+        return
 
-    output_package_csvs= {}
-    output_package_plots = {}
+    output_package_csvs= []
+    output_package_plots = []
     try:
         gage_output_files = format_output_gage_data(gage_csvs)
         #Merge dicts
-        output_package_csvs = output_package_csvs | gage_output_files
+        output_package_csvs.extend(write_csvs_to_disk(id, gage_output_files))
+        # Data is now cached to disk, remove it from memory
+        del gage_output_files
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to create output package gage csvs.')
+        clear_output_files(id)
         return
     try:
         if(raw_gage_timeseries == None):
@@ -1179,28 +1247,33 @@ def generate_cda_output_package(
         if(unimpaired_gage_data == None):
             raise Exception("Must have uploaded gage diverters for output package formatting.")
         (impairment_csvs, impairment_plot) = generate_gage_impairment_output(raw_gage_timeseries, unimpaired_gage_data, poi_unimpaired)
-        output_package_csvs = output_package_csvs | impairment_csvs
-        output_package_plots = output_package_plots | impairment_plot
+        output_package_csvs.extend(write_csvs_to_disk(id, impairment_csvs))
+        del impairment_csvs
+        output_package_plots.extend(write_plots_to_disk(id, impairment_plot))
+        del impairment_plot
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to generate gage impaired/unimpaired data')
+        clear_output_files(id)
         return
     try:
-        threads = []
-        peaks_threshold_output_execution(unimpaired_gage_data, None, output_package_csvs, output_package_plots)
+        peaks_threshold_output_execution(id, unimpaired_gage_data, None, output_package_csvs, output_package_plots)
         for poi_id in poi_time_seriess.keys():
-            peaks_threshold_output_execution(poi_time_seriess[poi_id]['unimpaired'], f'{poi_id + 1}_unimpaired', output_package_csvs, output_package_plots)
-            peaks_threshold_output_execution(poi_time_seriess[poi_id]['impaired_with_diverters'], f'{poi_id + 1}_impaired_with_diverters', output_package_csvs, output_package_plots)
-            peaks_threshold_output_execution(poi_time_seriess[poi_id]['impaired_with_pod'], f'{poi_id + 1}_impaired_with_pod', output_package_csvs, output_package_plots)
+            peaks_threshold_output_execution(id, poi_time_seriess[poi_id]['unimpaired'], f'{poi_id + 1}_unimpaired', output_package_csvs, output_package_plots)
+            peaks_threshold_output_execution(id, poi_time_seriess[poi_id]['impaired_with_diverters'], f'{poi_id + 1}_impaired_with_diverters', output_package_csvs, output_package_plots)
+            peaks_threshold_output_execution(id, poi_time_seriess[poi_id]['impaired_with_pod'], f'{poi_id + 1}_impaired_with_pod', output_package_csvs, output_package_plots)
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to generate peaks over threshold output data.')
+        clear_output_files(id)
         return
     try:
         if(not 'thresholdTableData' in cda_session or cda_session['thresholdTableData'] == None):
             raise Exception("Output package requires calculated thresholds table data!")
         threshold_output_csvs = thresholds_table_output(cda_session)
-        output_package_csvs = output_package_csvs | threshold_output_csvs
+        output_package_csvs.extend(write_csvs_to_disk(id, threshold_output_csvs))
+        del threshold_output_csvs
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to make threshold table data.')
+        clear_output_files(id)
         return
     try:
         for index, poi_id in enumerate(poi_time_seriess):
@@ -1210,7 +1283,7 @@ def generate_cda_output_package(
             (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, cda_session)
             pod_data = next(x for x in upstream_senior_diverters_with_pod if x['analysis_label'] == 'Proposed POD')
             poi_senior_diverter_output_csv = generate_poi_senior_diverters_output(poi_id, upstream_senior_diverters_with_pod)
-            output_package_csvs = output_package_csvs | poi_senior_diverter_output_csv
+            output_package_csvs.extend(write_csvs_to_disk(id, poi_senior_diverter_output_csv))
             daily_flow_study_timeseries = generate_daily_flow_timeseries(
                 poi_id,
                 poi_time_seriess[poi_id],
@@ -1224,7 +1297,8 @@ def generate_cda_output_package(
                 cda_session,
                 pod_data
             )
-            output_package_csvs = output_package_csvs | daily_flow_study_timeseries
+            output_package_csvs.extend(write_csvs_to_disk(id, daily_flow_study_timeseries))
+            del daily_flow_study_timeseries
             poi_threshold_data = next(x for x in cda_session['thresholdTableData'] if x['poiId'] == poi_id)
             if("februaryMedian" in poi_threshold_data):
                 february_median_timeseries = generate_daily_flow_timeseries(
@@ -1241,34 +1315,49 @@ def generate_cda_output_package(
                     pod_data,
                     february=True
                 )
-                output_package_csvs = output_package_csvs | february_median_timeseries
+                output_package_csvs.extend(write_csvs_to_disk(id, february_median_timeseries))
+                del february_median_timeseries
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nUnable to generate time-series csvs.')
+        clear_output_files(id)
         raise
     try:
         daily_flow_summary_csvs = generate_daily_flow_summary_csvs(cda_session)
-        output_package_csvs = output_package_csvs | daily_flow_summary_csvs
-        file_like = BytesIO()
-        with zipfile.ZipFile(file_like, mode='w') as zipFileByteObject:
+        output_package_csvs.extend(write_csvs_to_disk(id, daily_flow_summary_csvs))
+        del daily_flow_summary_csvs
+        output_zip = f'./output_package_zips/{id}/output_package.zip'
+        if(not os.path.exists('./output_package_zips')):
+            os.mkdir('./output_package_zips')
+        if(not os.path.exists(f'./output_package_zips/{id}')):
+            os.mkdir(f'./output_package_zips/{id}')
+        with zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             #Put CSVs in zip
-            for file_name in output_package_csvs.keys():
-                prepared_csv = output_package_csvs[file_name].to_csv(quotechar='"', quoting=csv.QUOTE_NONNUMERIC, index=False)
-                zipFileByteObject.writestr(f'{file_name}.csv', prepared_csv)
+            for file_path in output_package_csvs:
+                arcname = os.path.basename(file_path)  # name inside the zip
+                with open(file_path, "rb") as src, zf.open(arcname, "w") as dst:
+                    while chunk := src.read(STREAMING_CHUNK_SIZE):
+                        dst.write(chunk)
             #Put PNGs in zip
-            for file_name in output_package_plots.keys():
-                zipFileByteObject.writestr(f'{file_name}.png', output_package_plots[file_name].getvalue())
+            for file_path in output_package_plots:
+                arcname = os.path.basename(file_path) # name inside the zip
+                with open(file_path, "rb") as src, zf.open(arcname, "w") as dst:
+                    while chunk := src.read(STREAMING_CHUNK_SIZE):
+                        dst.write(chunk)
 
             #Add output package documentation to zip
-            with open('zipfiles/Cumulative-Diversion-Analysis-Output-Package.pdf', 'rb') as file:
-                zipFileByteObject.writestr('Cumulative-Diversion-Analysis-Output-Package.pdf', file.read())
+            arcname = 'Cumulative-Diversion-Analysis-Output-Package.pdf'
+            with open('zipfiles/Cumulative-Diversion-Analysis-Output-Package.pdf', 'rb') as src, zf.open(arcname, "w") as dst:
+                while chunk := src.read(STREAMING_CHUNK_SIZE):
+                    dst.write(chunk)
 
             #Add gage senior diverters help to zip
-            with open('zipfiles/CDA-Gage-Senior-Diverters-Help.pdf', 'rb') as file:
-                zipFileByteObject.writestr('CDA Gage Senior Diverters Help.pdf', file.read())
+            arcname = 'CDA-Gage-Senior-Diverters-Help.pdf'
+            with open('zipfiles/CDA-Gage-Senior-Diverters-Help.pdf', 'rb') as src, zf.open(arcname, "w") as dst:
+                while chunk := src.read(STREAMING_CHUNK_SIZE):
+                    dst.write(chunk)
 
-        file_like.seek(0)
         download_url = upload_file_to_blob(
-            file = file_like,
+            file = output_zip,
             project_id=id
         )
 
@@ -1277,6 +1366,9 @@ def generate_cda_output_package(
             id,
             download_url
         )
+        # Success!
+        clear_output_files(id)
     except Exception as e:
         email_error(email=email, id=id, error_message=f'{str(e)}\nFailed to generate and send emails.')
+        clear_output_files(id)
         return
