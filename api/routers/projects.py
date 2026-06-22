@@ -409,7 +409,7 @@ def get_project_session_package(params, id):
     (yearly_mean_gage_timeseries, average_gage_flow) = generate_gage_timeseries_seasonal_means(raw_gage_timeseries, wsr_summary_dicts[0]['diversion_season'])
     formatted_data = calculate_wsr_output_values(wsr_summary_dicts, gage_data, pod_rain_and_area, average_gage_flow)
     wsr_flow_frequency_points_of_analysis = generate_wsr_flow_frequency_points_of_analysis(formatted_data, yearly_mean_gage_timeseries)
-    session_data = app.db.get_session_information(g.user_id, id)
+    session_data = app.db.get_session_information(user_id = g.user_id, session_id = id)
     water_rights_csv_data = app.db.get_senior_diverter_csv_by_user_id(g.user_id, id)
     formated_session_data = format_session_data(session_data)
     user_uploaded_water_rights = get_wsr_water_rights_csv_formatted(water_rights_csv_data.get('csv_data'), True)
