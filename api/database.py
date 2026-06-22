@@ -188,8 +188,9 @@ class Database:
         result = self.execute_as_dict(get_wsr_summary_data_query, args, fetch_one=False)
         return result
 
-    def get_session_information(self, user_id, session_id):
-        result = self.execute_as_dict(f"select * from cwat_app.get_session_information(%s::text, %s::integer)", [user_id, session_id], fetch_one=True)
+    def get_session_information(self, **args):
+        from queries.get_session_information import get_session_information_query
+        result = self.execute_as_dict(get_session_information_query, args, fetch_one=True)
         return result
 
     def get_streampath_by_nhd_id(self, nhd_id):
