@@ -985,7 +985,7 @@ def format_session_data(raw_data):
         raw_data: raw data returned by the query dictionary of values to be used
     """
     # processing year array to make it readable
-    full_water_year_array = raw_data.get('full_water_year_array', ["no full water years available for selected gage"])
+    full_water_year_array = raw_data.get('full_year_array', ["no full water years available for selected gage"])
     formatted_years = [str(year) for year in full_water_year_array]
     formatted_years_str = ', '.join(formatted_years)
 
@@ -1072,10 +1072,10 @@ def format_session_data(raw_data):
     Proposed rate of diversion: {raw_data.get('rodval', "No supplied Rate of diversion value")} {raw_data.get('rodunit', 'No supplied rate of diversion units')}
     Proposed volume of diversion: {raw_data.get('vodval', "No supplied volume of diversion value")} {"Acre-Feet" if raw_data.get('vodunit', 'No supplied volume of diversion units') == 'acreFeet' else raw_data.get('vodunit', 'No supplied volume of diversion units')}
     Requires CDA: {raw_data.get('cdabool', "Project created before CDA was an option")}
-    """
+"""
     date_section = f"""Streamflow & Senior Diverters data current as of:
     {freeze_date_str}
-    """
+"""
     station_section = f"""Gage Data:
     Gage data source: United States Geological Survey (USGS)
     Gage data last updated: Dec 12th, 2023
@@ -1084,9 +1084,9 @@ def format_session_data(raw_data):
     Drainage area miles squared: {raw_data.get('area_sqmi', 'Drainage area unavailable')}
     First full water year: {raw_data.get('full_water_year_start', 'First year unavilable for selected gage')}
     Last full water year: {raw_data.get('full_water_year_end', 'Last year unavilable for selected gage')}
-    Number of full water years: {raw_data.get('numb_of_full_years', "Number of years unavailble for selected gage")}
+    Number of full water years: {raw_data.get('number_of_full_years', "Number of years unavailble for selected gage")}
     List of full water years: {formatted_years_str}
-    """
+"""
     returnval = f"{date_section}\n{project_section}\n{station_section}"
     return returnval
 
