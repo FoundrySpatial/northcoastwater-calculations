@@ -403,9 +403,16 @@ def get_adjusted_csv_data(raw_data, water_shed, gage = False):
     # Another weird hack to fix the fact that pandas does not like reading ints with holes in it makes all columns of type "Object" which would be inefficient normally
     # But should be fine given no more processing is happening (also the dataframes cant get very large)
     result_df = result_df.replace(np.nan, None)
-    result_df.fillna(-999999, inplace=True)
+    for col in result_df:
+        # do data-type safe filling, fill numbers with numbers and strings with strings
+        dt = result_df[col].dtype
+        if dt == int or dt == float:
+            result_df[col] = result_df[col].fillna(-999999)
+        else:
+            result_df[col] = result_df[col].fillna("NO_DATA")
     result_df = result_df.convert_dtypes()
     result_df = result_df.replace(-999999, None)
+    result_df = result_df.replace("NO_DATA", None)
     result_df = result_df.replace({np.nan: None})
 
     if gage:
