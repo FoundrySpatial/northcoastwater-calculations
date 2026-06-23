@@ -1123,7 +1123,7 @@ def clear_output_files(
 def upload_file_to_blob(
         file,
         project_id,
-        expiry_hours = 24
+        expiry_hours = 96
     ):
     """
     Upload file to blob storage and generate a string for users to download.
