@@ -1009,6 +1009,8 @@ def generate_diverter_yearly_output(
         diverter_minimum_bypass_flow = 0
     current_diverter_flow = [0] * number_of_days_in_year
     for _, day in year.iterrows():
+        if(i >= len(total_upstream_diversions)):
+            break
         # I know iterrows isn't the best, but we need to continually pass through these values to work
         # towards the total, it is a definitely iterative process for this unfortunately
         raw_flow_data = day['daily_flow']
@@ -1503,3 +1505,24 @@ def calculate_instream_flows_reduction(daily_time_seriess, threshold, start_date
             "percentagePod" : percentage_pod,
             "months": months_calculated,
             "is_partial_month": month_is_partial}
+
+def overwrite_wsr_senior_diverters_with_pod_threshold(
+    wsr_senior_diverters,
+    pod_threshold
+):
+    """
+    Overwrite WSR senior diverters values with the threshold data from the POD.
+
+    The minimum bypass flow specifically needs to have an impact here.
+
+    Args:
+        wsr_senior_diverters - Senior diverters from the WSR section used in CDA calculations
+        pod_threshold - the data from the threshold table with respect to the POD
+    """
+    output = []
+    for row in wsr_senior_diverters:
+        if(row['analysis_label'] == 'Proposed POD'):
+            # For the proposed POD, use the user-entered mbf value
+            row['minimum_bypass_flow_cfs'] = pod_threshold['minimumBypassFlow']
+        output.append(row)
+    return output

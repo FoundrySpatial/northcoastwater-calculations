@@ -7,7 +7,8 @@ from utils.cda_utils import (
     calculate_cda_ratio,
     generate_senior_diverter_ts_poi,
     calculate_natural_flow_variability,
-    calculate_instream_flows_reduction
+    calculate_instream_flows_reduction,
+    overwrite_wsr_senior_diverters_with_pod_threshold
 )
 from datetime import datetime
 from database import Database
@@ -19,6 +20,7 @@ def generate_daily_flow_study_async(
     user_id,
     session,
     poi_threshold,
+    pod_threshold,
     return_output = False
 ):
     """
@@ -77,6 +79,7 @@ def generate_daily_flow_study_async(
         #Get the senior diverters for the poi and impairg
         try:
             wsr_senior_diverters = db.get_senior_diverter_csv_by_user_id(user_id, id)['csv_data']
+            wsr_senior_diverters = overwrite_wsr_senior_diverters_with_pod_threshold(wsr_senior_diverters, pod_threshold)
             if(wsr_senior_diverters == {}):
                 raise Exception("No wsr senior diverters found - is the wsr section complete?")
             (upstream_senior_diverters, upstream_senior_diverters_with_pod) = get_senior_diverters_upstream_of_poi(wsr_senior_diverters, poi, session)
