@@ -757,6 +757,9 @@ def daily_flow_study(id, poi_id):
     poi_threshold = next((p for p in session['thresholdTableData'] if p["poiId"] == poi_id), None)
     if(poi_threshold == None):
         raise Exception(f"Poi at given index doesn't have associated threshold data : {poi_id}")
+    pod_threshold = next((p for p in session['thresholdTableData'] if p["poiId"] == -1), None)
+    if(pod_threshold == None):
+        raise Exception(f"Project at given index doesn't have associated threshold data!")
     # Get ready for job, make UUID and db entry
     dfs_uuid = uuid.uuid4()
     app.db.create_dfs_job_entry(
@@ -772,7 +775,8 @@ def daily_flow_study(id, poi_id):
            dfs_uuid,
            g.user_id,
            session,
-           poi_threshold
+           poi_threshold,
+           pod_threshold
         )
     )
     generate_output_process.start()
