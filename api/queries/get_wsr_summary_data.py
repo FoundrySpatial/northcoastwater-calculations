@@ -97,7 +97,8 @@ SELECT
     initial_wsr_calcs.station_id,
     initial_wsr_calcs.diversion_season,
     initial_wsr_calcs.seasonal_demand_before_new_water_right_af,
-    initial_wsr_calcs.seasonal_upstream_demand_af,
+    -- include current diverter's demand in the total seasonal upstream demand
+    initial_wsr_calcs.seasonal_upstream_demand_af + initial_wsr_calcs.seasonal_demand_before_new_water_right_af as seasonal_upstream_demand_af,
     initial_wsr_calcs.additional_impairment_caused_by_new_water_right_af,
     initial_wsr_calcs.drainage_area_sqmi,
     initial_wsr_calcs.annual_precip_in
