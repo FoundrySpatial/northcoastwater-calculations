@@ -220,7 +220,7 @@ def format_wsr_summary_csv_names (proposed_diversion_season):
         "diversion_season": "Diversion Season",
         "seasonal_unimpaired_flow_volume_af": "Seasonal Unappropriated Flow Volume (AF)",
         "seasonal_demand_before_new_water_right_af": f"{proposed_diversion_season} Seasonal Demand Before Proposed POD (AF)",
-        "seasonal_upstream_demand_af": f"{proposed_diversion_season} Upstream Demand Before Proposed POD (AF)",
+        "seasonal_upstream_demand_af": f"{proposed_diversion_season} Diverter + Upstream Demand Before Proposed POD (AF)",
         "remaining_unimpaired_discharge_before_new_water_right_af": "Remaining unappropriated flow, (AF) Before Proposed POD",
         "percent_remaining_unappropriated_water_before_new_water_right": "Percentage of remaining unappropriated water Before Proposed POD",
         "additional_impairment_caused_by_new_water_right_af": "Additional Impairment Caused By Proposed POD (AF)",
