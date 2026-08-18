@@ -256,8 +256,8 @@ def get_gage_water_rights(params, id):
         for row in water_rights_dicts:
             output_dict = row
             matching_rain_area_row = next(
-                    r for r in pod_diverter_rain_and_area_dicts if r['application_number'] == row['application_number']
-                )
+                r for r in pod_diverter_rain_and_area_dicts if r['application_number'] == row['application_number']
+            )
             output_dict['annual_precip_in'] = matching_rain_area_row['map_1991_2020_in']
             output_dict['drainage_area_sqmi'] = matching_rain_area_row['drainage_area_sqmi']
             for key in output_dict.keys():
