@@ -25,7 +25,6 @@ from utils.wsr_csv_utils import (
     generate_gage_timeseries_seasonal_means
 )
 from utils.cda_utils import (
-    AFD_TO_CFS,
     calculate_cda_intermediate_values,
     calculate_feb_median,
     calculate_mbf,
@@ -686,9 +685,8 @@ def calculate_cda_thresholds(id):
     # Get the mean unimpaired yearly flow and calculate minimum bypass flow
     try:
         unimpaired_gage_data = app.db.get_unimpaired_gage_data(g.user_id, id)
-        gage_yearly_mean_cfs = calculate_yearly_mean(unimpaired_gage_data)
+        (gage_yearly_mean_cfs, gage_yearly_mean_af) = calculate_yearly_mean(unimpaired_gage_data)
         gage_february_median = calculate_feb_median(unimpaired_gage_data)
-        gage_yearly_mean_af = gage_yearly_mean_cfs/AFD_TO_CFS * 365
         #position 0 = gage
         thresholds_data[0]['meanAnnualUnimpairedVolumeAf'] = gage_yearly_mean_af
         thresholds_data[0]['meanAnnualUnimpairedVolumeCfs'] = gage_yearly_mean_cfs
