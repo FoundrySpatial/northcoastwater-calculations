@@ -25,6 +25,7 @@ from utils.cda_utils import (
     generate_yearly_ts_from_row,
     format_use_codes,
     get_senior_diverters_upstream_of_poi,
+    is_leap_year,
     peaks_and_threshold,
     plot_and_find_instantaneous_peak_flow,
     get_first_water_year_after_date
@@ -706,6 +707,7 @@ def generate_daily_flow_timeseries(
         # Skip leap year
         year = date_split[2]
         water_year = generate_water_year(day_record['date'])
+        leap_year = is_leap_year(water_year)
         diversions = yearly_diversions[int(water_year)]
         output_row = {}
         output_row['date'] = f"{month}-{day}-{year}"
@@ -759,7 +761,8 @@ def generate_daily_flow_timeseries(
         output_df = pd.concat(
             [output_df, pd.DataFrame.from_dict([output_row])], ignore_index=True
         )
-        year_index = (year_index + 1) % 365
+        modulus = 366 if leap_year else 365
+        year_index = (year_index + 1) % modulus
         if(year_index == 0):
             # Reset the yearly diversions sums
             for diverter in sum_yearly_diversions_diverters.keys():

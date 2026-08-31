@@ -436,7 +436,7 @@ def calculate_cda_intermediate_values(senior_diverters_df):
         Creating the generated "intermediate" values for CWAT CDA gage diverters calculation, required to unimpair gage
 
         Reference for fields:
-        https://foundryspatial.atlassian.net/wiki/spaces/CAL/pages/1777664023/Senior+Diverters+Seasonal+Demand
+        https://github.com/FoundrySpatial/confluence-exports/blob/c8879a927c4f00f5c9754a73716f99c9555446f6/confluence-files/California-WT/California-WT%20Home/Features/F-CW-0002_%20Ability%20to%20export%20WSR%20results/Package%20Export%20Files/Senior%20Diverters%20Seasonal%20Demand.md#L4
 
         Numbers below correspond to numbering in above file. Note that for this case (CDA), not all of the above are calcualted.
         Most importantly, the calcualtions for "proposed season overlaps" are irrelevant as this is a yearly study/ unimpairment.
@@ -520,7 +520,7 @@ def calculate_cda_intermediate_values(senior_diverters_df):
 
 def calculate_yearly_mean(unimpaired_gage_data):
     """
-        Calculates the yearly mean of the supplied data
+        Calculates the yearly mean of the supplied data, in cubic-feet per second and acre-feet (total) per year
         Args:
             unimpaired_gage_data -> gage data that has been unimpaired from senior diverters
         Returns:
@@ -533,7 +533,22 @@ def calculate_yearly_mean(unimpaired_gage_data):
 
     total_daily_flow = df['daily_flow'].sum()
     # Calculate the mean of all of the daily records
-    return total_daily_flow / len(df['date'])
+    daily_mean_cfs = total_daily_flow / len(df['date'])
+
+    df['year_of_flow'] = df['date'].dt.year
+    df['daily_flow_af'] = df['daily_flow'] / AFD_TO_CFS
+
+    yearly_mean_af = (
+        df
+        .groupby(
+            by = 'year_of_flow'
+        )
+        ['daily_flow_af']
+        .sum()
+        .mean()
+    )
+
+    return (daily_mean_cfs, yearly_mean_af)
 
 def calculate_feb_median(data):
     """
@@ -1232,7 +1247,6 @@ def calculate_natural_flow_variability(daily_time_seriess):
     """
         Calculate the "Evaluate whether the proposed project contributes to reductions in natural flow variability"(B5.3.5).
         This involves calling the peaks over threshold functionality and calculating ratios.
-        See https://foundryspatial.atlassian.net/wiki/x/G4BldQ for more information!
         Args:
             daily_time_seriess - unimpaired and impaired daily time series for analysis
         Returns:

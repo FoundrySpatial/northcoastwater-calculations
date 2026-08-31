@@ -751,7 +751,7 @@ def calculate_seasonal_demand_amount(row):
     """
         Calculates the wr_seasonal_demand (overall demand overlap with proposed season)
 
-        https://foundryspatial.atlassian.net/wiki/spaces/CAL/pages/1777664023/Senior+Diverters+Seasonal+Demand
+        https://github.com/FoundrySpatial/confluence-exports/blob/c8879a927c4f00f5c9754a73716f99c9555446f6/confluence-files/California-WT/California-WT%20Home/Features/F-CW-0002_%20Ability%20to%20export%20WSR%20results/Package%20Export%20Files/Senior%20Diverters%20Seasonal%20Demand.md#L4
         Represents calculation of number 15 in above document
         Splits in and outside of policy season
     """
@@ -854,7 +854,7 @@ def calc_wsr_intermediate_values(senior_diverters_df, form_data_df):
         Creating the generated "intermediate" values for CWAT, expected for data output
 
         Reference for fields:
-        https://foundryspatial.atlassian.net/wiki/spaces/CAL/pages/1777664023/Senior+Diverters+Seasonal+Demand
+        https://github.com/FoundrySpatial/confluence-exports/blob/c8879a927c4f00f5c9754a73716f99c9555446f6/confluence-files/California-WT/California-WT%20Home/Features/F-CW-0002_%20Ability%20to%20export%20WSR%20results/Package%20Export%20Files/Senior%20Diverters%20Seasonal%20Demand.md#L4
 
         Numbers below correspond to numbering in above file
     """
