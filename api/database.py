@@ -332,8 +332,16 @@ class Database:
             Returns:
                 String: "COMPLETE" to signal the computation is done
         """
-        result = self.execute_as_dict(f"select * from cwat_app.unimpair_gage_timeseries(%s::jsonb, %s::text, %s::bigint)", [ts_data,user_id,id], fetch_one=True)
-        return result.get("unimpair_gage_timeseries")
+        from queries.unimpair_gage_timeseries import unimpair_gage_timeseries_query
+        self.execute(
+            unimpair_gage_timeseries_query,
+            {
+                'user_id_in': user_id,
+                'session_id_in': id,
+                'input_data': ts_data
+            }
+        )
+        return "COMPLETE"
 
     def reimpair_gage_timeseries(self, user_id, id, poi_id, contains_pod, ts_data):
         """
