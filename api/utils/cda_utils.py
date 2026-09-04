@@ -1332,7 +1332,6 @@ def generate_pod_diversion_row(senior_diverter_df, cda_session):
         raise Exception("No volume of diversion in given cda session!")
     return pod_row
 
-
 def find_closest_water_right(lat, long, senior_diverter_df):
     """
         Find the closest water right to a given lat and long from the user's senior_diverters
@@ -1378,17 +1377,29 @@ def get_senior_diverters_upstream_of_poi(senior_diverter_csv, poi, cda_session):
     # If the user has entered an upstream senior diverter, default to that
     upstream_water_right = None
     if('upstreamWaterRight' in poi):
-        if(poi['upstreamWaterRight'] == 'null'):
+        if('-' in poi['upstreamWaterRight']):
+            split_right = poi['upstreamWaterRight'].split('-')
+            wr_order_upstream_to_downstream = split_right[0]
+            water_right_id = split_right[1]
+        else:
+            wr_order_upstream_to_downstream = None
+            water_right_id = poi['upstreamWaterRight']
+        if(water_right_id == 'null'):
             upstream_water_right = -1
-        elif(float(poi['upstreamWaterRight']) in df['wr_water_right_id'].tolist()):
-            upstream_water_right = float(poi['upstreamWaterRight'])
+        elif(float(water_right_id) in df['wr_water_right_id'].tolist()):
+            if(wr_order_upstream_to_downstream is not None):
+                index_of_wr = df.index[
+                    (df['wr_water_right_id'] == float(water_right_id))
+                    & (df['order_upstream_to_downstream'] == int(wr_order_upstream_to_downstream))
+                ].tolist()[0]
+            else:
+                index_of_wr = df.index[df['wr_water_right_id'] == float(water_right_id)].tolist()[0]
     else:
         upstream_water_right = find_closest_water_right(poi['lat'], poi['long'], df)
+        index_of_wr = df.index[df['wr_water_right_id'] == upstream_water_right].tolist()[0]
     if(upstream_water_right == -1):
         #POD was closest - doesn't have a wr id
         index_of_wr = index_of_pod
-    else:
-        index_of_wr = df.index[df['wr_water_right_id'] == upstream_water_right].tolist()[0]
     if(index_of_wr < index_of_pod):
         raise Exception("Cannot have all diversions for POI upstream of the POD!")
     df = df.iloc[0: index_of_wr+1]
