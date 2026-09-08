@@ -662,8 +662,8 @@ def calculate_cda_thresholds(id):
         #Get required data for gage
         gage_ratio_raw = app.db.get_gage_size_and_mean_precip(wsr_session_id = id)
         gage_ratio_data = {"poiId": -2,
-                           "drainageArea": gage_ratio_raw['drainage_area_sqmi'],
-                           "averagePrecipitation": gage_ratio_raw['map_1991_2020_in']}
+            "drainageArea": gage_ratio_raw['drainage_area_sqmi'],
+            "averagePrecipitation": gage_ratio_raw['map_1991_2020_in']}
         thresholds_data.append(gage_ratio_data)
         #Get required data for user's pod
         wsr_session = app.db.get_wsr_session_by_id(g.user_id, id)
@@ -727,8 +727,6 @@ def calculate_cda_thresholds(id):
                 thresholds_data[i]['maximumCumulativeDiversionRegional'] = thresholds_data[i]['maximumCumulativeDiversion']
     except Exception as e:
         raise Exception({"message": f'{str(e)}\nUnable to calculate maximum cumulative diversion' , "status_code": 400})
-
-    app.db.update_cda_session_by_id(g.user_id, id, {"thresholdTableData" : thresholds_data})
 
     return thresholds_data, 200
 
