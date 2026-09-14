@@ -182,6 +182,7 @@ wsr_schema = {
         "status": {"type": "string"},
         "title": {"type": "string"},
         "requiresCda": {"type": "boolean"},
+        "usesCustomStreamPath": {"type": "boolean"},
         "hasMinBypassThreshold": {"type": "boolean"},
         "hasSeniorDiverters": {"type": "boolean"},
         "description": {"type": "string"},
