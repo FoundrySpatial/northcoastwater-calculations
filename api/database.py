@@ -645,3 +645,6 @@ class Database:
         from queries.check_result_of_daily_flow_job import check_result_of_daily_flow_job_query
         output = self.execute_as_dict(check_result_of_daily_flow_job_query, args=args, fetch_one=True)
         return output
+
+    def get_db_health(self):
+        return self.execute_as_dict("SELECT NOW();", args = [], fetch_one=True)
