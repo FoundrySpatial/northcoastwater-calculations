@@ -182,7 +182,7 @@ wsr_schema = {
         "status": {"type": "string"},
         "title": {"type": "string"},
         "requiresCda": {"type": "boolean"},
-        "usesCustomStreamPath": {"type": "boolean"},
+        "usesCustomFlowPath": {"type": "boolean"},
         "hasMinBypassThreshold": {"type": "boolean"},
         "hasSeniorDiverters": {"type": "boolean"},
         "description": {"type": "string"},
@@ -314,7 +314,12 @@ def is_point_inside_polygon(row, polygon):
     point = Point(row['longitude'], row['latitude'])
     return (polygon.contains(point)) and (row['analysis_label'] == "Inside Project Extent" or row['analysis_label'] == "Mainstem POA")
 
-def get_adjusted_csv_data(raw_data, water_shed, gage = False):
+def get_adjusted_csv_data(
+        raw_data,
+        water_shed,
+        gage = False,
+        custom_stream_path = False
+    ):
     """
     Function to re-label and move inaccuratley labled points by our DFS SQL endpoint that are on isolated stream reaches or snapped to an outside stream despite being within the upstream polygon.
 
@@ -323,16 +328,18 @@ def get_adjusted_csv_data(raw_data, water_shed, gage = False):
         raw_data: raw csv data as returned by the database
         water_shed: a watershed multipolygon for the proposed NHDID (just upstream)
         gage: a boolean for if the supplied data is for a gage instead of a pod. If this is the case then downstream and the pod itself will be ignored as all that matters is upstream demand for impairment
+        custom_stream_path: a boolean indicating if a custom stream path is being used. If so, perform some re-labelling.
     Returns:
         Returns two values the first is a Boolean if bad points existed within the supplied raw data for the given polygon
         Second is edited data that only exists if there was bad points in the data. This was done to speedup runtime in the common case where there is no bad points.
-        Also to eliminate the likely hood of unintended side effects occuring by running this on data with no bad points (there should be none but better safe then sorry)
+        Also to eliminate the likelihood of unintended side effects occuring by running this on data with no bad points (there should be none but better safe then sorry)
     """
+    if(gage and custom_stream_path):
+        raise ValueError("Should not run the get_adjusted_csv_data function with both the gage and custom_stream_path values as True!")
     # Turn off a warning for modifying a copy of a spliced dataframe
     pd.options.mode.chained_assignment = None
 
     df = pd.DataFrame.from_dict(raw_data)
-
     if(df.empty):
         return []
     #Filter out values with water_right_status that indicate unused water right
@@ -379,12 +386,20 @@ def get_adjusted_csv_data(raw_data, water_shed, gage = False):
             df = df[~df['analysis_label'].isin(values_to_drop)]
             df['analysis_label'] = df['analysis_label'].apply(
                 lambda x: "Upstream of Gage")
+        if(custom_stream_path):
+            # Handle the custom stream path case
+            # For the defaults, we do some simple handling
+            # We simply set the diverters which are labelled "Upstream of POD"
+            # To "Upstream of Downstream Flow Path"
+            # As they are only upstream of the POD intersection point with its associated nhd_id
+            df['analysis_label'] = df['analysis_label'].apply(
+                lambda x: 'Upstream of Downstream Flow Path' if x == 'Upstream of POD' else x)
+        df = df.replace({np.nan: None})
         converted_list = [RealDictRow(row) for row in df.to_dict(orient='records')]
         return converted_list
 
     # Free up this memory now that it has been split
     del df
-
     # Fix inaccurate fields
     df_bad_points['comments'] = 'Likely out of order, this WR is on an isolated stream reach and therefore cannot be accurately ordered' + df_bad_points['comments']
     df_bad_points['analysis_label'] = 'Upstream of POD'
@@ -421,7 +436,16 @@ def get_adjusted_csv_data(raw_data, water_shed, gage = False):
         result_df = result_df[~result_df['analysis_label'].isin(values_to_drop)]
         result_df['analysis_label'] = result_df['analysis_label'].apply(
                 lambda x: "Upstream of Gage")
-    # mock data comming from database using psycopg2 datatype so the pipeline remains the same
+    if(custom_stream_path):
+        # Handle the custom stream path case
+        # For the defaults, we do some simple handling
+        # We simply set the diverters which are labelled "Upstream of POD"
+        # To "Upstream of Downstream Flow Path"
+        # As they are only upstream of the POD intersection point with its associated nhd_id
+        result_df['analysis_label'] = result_df['analysis_label'].apply(
+            lambda x: 'Upstream of Downstream Flow Path' if x == 'Upstream of POD' else x)
+    # mock data coming from database using psycopg2 datatype so the pipeline remains the same
+    result_df = result_df.replace({np.nan: None})
     converted_list = [RealDictRow(row) for row in result_df.to_dict(orient='records')]
     return converted_list
 
