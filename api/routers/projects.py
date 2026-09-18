@@ -265,11 +265,26 @@ def get_gage_water_rights(params, id):
                     output_dict[key] = float(output_dict[key])
             output.append(output_dict)
         raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(output, nhd, lat, lng, wsr_session)
-        water_rights_csv_data = get_adjusted_csv_data(raw_water_rights_csv_data, water_shed, gage = True)
+        water_rights_csv_data = get_adjusted_csv_data(
+            raw_water_rights_csv_data,
+            water_shed,
+            custom_stream_path = False,
+            gage = True
+        )
         wsr_senior_diverter_csv = app.db.get_wsr_edited_senior_diverter_csv_by_user_id(g.user_id, id)
-        water_rights_csv_data  = overwrite_with_wsr_diverters(water_rights_csv_data, wsr_senior_diverter_csv)
-        water_rights_json = get_intermediate_data_json_formatted(water_rights_csv_data, cda=True)
-        app.db.save_raw_senior_diverters_gage(g.user_id, id, water_rights_json)
+        water_rights_csv_data  = overwrite_with_wsr_diverters(
+            water_rights_csv_data,
+            wsr_senior_diverter_csv
+        )
+        water_rights_json = get_intermediate_data_json_formatted(
+            water_rights_csv_data,
+            cda=True
+        )
+        app.db.save_raw_senior_diverters_gage(
+            g.user_id,
+            id,
+            water_rights_json
+        )
         if request.mimetype == 'text/csv':
             water_rights_csv = get_wsr_water_rights_csv_formatted(water_rights_csv_data, False)
             return Response(water_rights_csv,  mimetype='application/zip'), 200

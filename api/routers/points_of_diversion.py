@@ -51,8 +51,19 @@ def get_points_of_diversion_water_rights(params):
                 # little bit of type handling
                 output_dict[key] = float(output_dict[key])
         output.append(output_dict)
-    raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(output, nhd, lat, lng, wsr_session)
-    water_rights_csv_data = get_adjusted_csv_data(raw_water_rights_csv_data, watershed)
+    raw_water_rights_csv_data = sort_and_format_unsorted_csv_data(
+        output,
+        nhd,
+        lat,
+        lng,
+        wsr_session
+    )
+    project_uses_custom_stream_path = 'usesCustomFlowPath' in wsr_session and wsr_session['usesCustomFlowPath']
+    water_rights_csv_data = get_adjusted_csv_data(
+        raw_water_rights_csv_data,
+        watershed,
+        custom_stream_path = project_uses_custom_stream_path
+    )
     water_rights_json = get_intermediate_data_json_formatted(water_rights_csv_data)
     app.db.save_raw_senior_diverters(g.user_id, session_id, water_rights_json)
 
@@ -61,7 +72,7 @@ def get_points_of_diversion_water_rights(params):
         app.db.update_wsr_session_by_id(g.user_id, session_id, {'freezeDate': str(date)})
         return Response(water_rights_csv,  mimetype='application/zip'), 200
     else:
-        sd_geojson = get_wsr_water_rights_json_formatted(raw_water_rights_csv_data)
+        sd_geojson = get_wsr_water_rights_json_formatted(water_rights_csv_data)
         return jsonify(sd_geojson), 200
 
 @points_of_diversion.route('/labels', methods=['GET'])
