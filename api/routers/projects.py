@@ -478,14 +478,27 @@ def update_project_session(id):
         validate(instance=request.json, schema=wsr_schema)
         result = app.db.update_wsr_session_by_id(g.user_id, id, request.json)
         data = request.json
-        if("pointOfDiversion" in data.keys() and data['pointOfDiversion'] is not None):
-            session = app.db.get_wsr_session_by_id(g.user_id, id)['session']
-            nhd_plus_id = session['nhdId']
-            app.db.generate_watershed_for_pod_and_store(json.dumps(data['pointOfDiversion']['geometry']), nhd_plus_id, id)
-            pod_rain_and_area = app.db.get_pod_size_and_mean_precip_uncalculated(wsr_session_id = id)
-            vals = {'watershedAnnualPrecip': pod_rain_and_area['map_1991_2020_in'], 'watershedArea': pod_rain_and_area['drainage_area_sqmi']}
-            result = app.db.update_wsr_session_by_id(g.user_id, id, vals)
-            result = dict(result) | vals
+        session = app.db.get_wsr_session_by_id(g.user_id, id)['session']
+        # Only perform POD watershed calculation if the user is NOT using a custom flow path
+        if('usesCustomFlowPath' in session and not session['usesCustomFlowPath']):
+            # Calculate the POD watershed area and mean annual precipitation in this case
+            if('pointOfDiversion' in data.keys() and data['pointOfDiversion'] is not None):
+                if('nhdId' in session and session['nhdId'] is not None):
+                    nhd_plus_id = session['nhdId']
+                    app.db.generate_watershed_for_pod_and_store(json.dumps(data['pointOfDiversion']['geometry']), nhd_plus_id, id)
+                    pod_rain_and_area = app.db.get_pod_size_and_mean_precip_uncalculated(wsr_session_id = id)
+                    vals = {'watershedAnnualPrecip': pod_rain_and_area['map_1991_2020_in'], 'watershedArea': pod_rain_and_area['drainage_area_sqmi']}
+                    result = app.db.update_wsr_session_by_id(g.user_id, id, vals)
+                    result = dict(result) | vals
+            # Or if the user has gone the other way (POD before stream, also try to calculate it here)
+            elif('nhdId' in data.keys() and data['nhdId'] is not None):
+                if('pointOfDiversion' in session and session['pointOfDiversion'] is not None):
+                    nhd_plus_id = data['nhdId']
+                    app.db.generate_watershed_for_pod_and_store(json.dumps(session['pointOfDiversion']['geometry']), nhd_plus_id, id)
+                    pod_rain_and_area = app.db.get_pod_size_and_mean_precip_uncalculated(wsr_session_id = id)
+                    vals = {'watershedAnnualPrecip': pod_rain_and_area['map_1991_2020_in'], 'watershedArea': pod_rain_and_area['drainage_area_sqmi']}
+                    result = app.db.update_wsr_session_by_id(g.user_id, id, vals)
+                    result = dict(result) | vals
         return result, 200
     # Catch for json schema errors. Pass along the schema error message, may be useful for client side warnings.
     except ValidationError as error:
