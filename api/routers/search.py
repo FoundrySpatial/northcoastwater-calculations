@@ -1,7 +1,8 @@
 import json
+from authentication.guards import authorization_guard
 from flask import Blueprint, jsonify, current_app as app
 from db_utils import get_search_distance
-from utils.api_utils import check_query_params, read_json
+from utils.api_utils import check_query_params
 
 search = Blueprint('search', __name__)
 
@@ -10,7 +11,7 @@ POSTGRES_MAX_BIGINT = 9223372036854775807
 @search.route('/', methods=['GET'])
 @check_query_params(['placeName', 'waterRight', 'lat', 'lng', 'stream'], False)
 def search_all(params):
-    
+
     (place_name,
     water_right,
     lat,
@@ -20,9 +21,9 @@ def search_all(params):
 
     if all(param == None for param in params):
         raise Exception({"message": "Please provide at least one search term in the query parameters. Valid search criteria are 'placeName', 'waterRight', 'lat', 'lng', and 'stream'.", "status_code": 422})
-    
+
     if ((lat and not lng) or (lng and not lat)):
-        raise Exception({"message": "To search by coordinates, provide both a 'lat' and 'lng' parameter.", "status_code": 422})        
+        raise Exception({"message": "To search by coordinates, provide both a 'lat' and 'lng' parameter.", "status_code": 422})
 
     if (place_name):
         result = app.db.get_stream_by_name(place_name)
@@ -35,7 +36,7 @@ def search_all(params):
 
 @search.route('/nhd-id', methods=['GET'])
 @check_query_params(['lat', 'lng', 'zoom'])
-def search_nhd(params): 
+def search_nhd(params):
     (
     lat,
     lng,
@@ -47,7 +48,7 @@ def search_nhd(params):
         distance = get_search_distance(zoom)
         if (distance == None):
             raise Exception({'status_code': 400, "message": "zoom level must be a non-negative integer"})
-        
+
         result = app.db.get_nhd_id_by_lat_lng(lat, lng, distance)
         if (result.get('nhdplusid') == None):
             raise Exception({'status_code': 404, "message": "Selected location is outside the study area or too far from a stream. Please select a different stream reach."})
@@ -56,7 +57,7 @@ def search_nhd(params):
         return result, 200
     except ValueError:
         raise Exception({'status_code': 400, "message": "zoom level must be a valid integer"})
-    
+
 @search.route('/nhd-id/<int:nhdplusid>', methods=['GET'])
 def search_ws_by_nhdplusid(nhdplusid):
 
@@ -68,14 +69,14 @@ def search_ws_by_nhdplusid(nhdplusid):
         return json.dumps({}), 200
     else:
         return result, 200
-    
+
 @search.route('/poi-data-latlng', methods = ['GET'])
 @check_query_params(['lat', 'lng'])
 def get_poi_data_by_lat_lng(params):
     (lat,lng) = params
     #Set 100 = minimum search distance
     distance = 100
-    
+
     result = app.db.get_nhd_id_by_lat_lng(lat, lng, distance)
     if (result.get('nhdplusid') == None):
         raise Exception({'status_code': 404, "message": "Selected location is outside the study area or too far from a stream. Please select a different stream reach."})
@@ -87,3 +88,22 @@ def get_poi_data_by_lat_lng(params):
         raise Exception({"status_code": 404, "message": "Unable to find poi data for given lat and long"})
     response['nhd_id'] = nhdplusid
     return response, 200
+
+
+@search.route('/nhd-watershed-area-map', methods = ['GET'])
+@check_query_params(['lat', 'lng', 'nhdplusid'])
+@authorization_guard
+def get_poi_watershed_information(params):
+    (
+        lat,
+        lng,
+        nhdplusid
+    ) = params
+
+    result = app.db.get_nhd_watershed_data_from_latlng_query(lat = lat, lng = lng, nhdplusid = nhdplusid)
+    response = {
+        'watershedArea': result['drainage_area_sqmi'],
+        'watershedAnnualPrecip': result['map_1991_2020_in']
+    }
+
+    return response

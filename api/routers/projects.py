@@ -704,7 +704,13 @@ def calculate_cda_thresholds(id):
         thresholds_data.append(pod_ratio_data)
         #Calculate ratios for poi's
         for poi in pois:
-            poi_ratio_raw = app.db.get_poi_size_and_mean_precip(cda_session_id = id, poi_id = poi['id'])
+            if('watershedArea' in poi and 'watershedAnnualPrecip' in poi):
+                poi_ratio_raw = {
+                    'drainage_area_sqmi': poi['watershedArea'],
+                    'map_1991_2020_in': poi['watershedAnnualPrecip']
+                }
+            else:
+                poi_ratio_raw = app.db.get_poi_size_and_mean_precip(cda_session_id = id, poi_id = poi['id'])
             poi_ratio_data = calculate_cda_ratio(poi_ratio_raw, gage_ratio_raw)
             poi_ratio_data['poiId'] = poi['id']
             thresholds_data.append(poi_ratio_data)
