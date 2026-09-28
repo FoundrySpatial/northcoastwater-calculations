@@ -1319,7 +1319,7 @@ def generate_wsr_flow_frequency_points_of_analysis(formatted_data, yearly_mean_g
     for row in formatted_data:
         if(row['analysis_label'] == 'Proposed POD'):
             vals_to_format.append(row)
-        if(row['percent_remaining_unappropriated_water_after_new_water_right'] < 50 or
+        elif(row['percent_remaining_unappropriated_water_after_new_water_right'] < 50 or
            row['percent_remaining_unappropriated_water_after_new_water_right'] == min_percentage):
             vals_to_format.append(row)
 
