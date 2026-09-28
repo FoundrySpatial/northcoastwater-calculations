@@ -593,7 +593,7 @@ class Database:
         from queries.generate_watershed_for_poi_and_store import generate_watershed_for_poi_and_store_query
         self.execute(generate_watershed_for_poi_and_store_query, args)
 
-    def get_poi_size_and_mean_precip(self, **args):
+    def get_poi_size_and_mean_precip(self, session = None, **args):
         """
         Gets the size of a poi and its mean precip values
         """
@@ -648,3 +648,11 @@ class Database:
 
     def get_db_health(self):
         return self.execute_as_dict("SELECT NOW();", args = [], fetch_one=True)
+
+    def get_nhd_watershed_data_from_latlng_query(self, **args):
+        """
+        Get NHD watershed data from lat long
+        """
+        from queries.get_nhd_watershed_data_from_latlng import get_nhd_watershed_data_from_latlng_query
+        output = self.execute_as_dict(get_nhd_watershed_data_from_latlng_query, args=args, fetch_one=True)
+        return output
