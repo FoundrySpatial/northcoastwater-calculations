@@ -94,6 +94,8 @@ cda_schema = {
                 "nhdId": {"type": "integer"},
                 "upstreamArea": {"type" : "number"},
                 "id" : {"type" : "integer"},
+                "watershedAnnualPrecip" : {"type": "number"},
+                "watershedArea": {"type": "number"}
             },
             "additionalProperties" : False,
             "required": ["id"]

@@ -61,7 +61,13 @@ def generate_daily_flow_study_async(
                 pod_nhdid = wsr_session['session']['nhdId']
                 if(pod_nhdid == None):
                     raise Exception("User does not have a selected point of diversion in session")
-                poi_ratio_raw = db.get_poi_size_and_mean_precip(cda_session_id = id, poi_id = poi_id)
+                if('watershedArea' in poi and 'watershedAnnualPrecip' in poi):
+                    poi_ratio_raw = {
+                        'drainage_area_sqmi': poi['watershedArea'],
+                        'map_1991_2020_in': poi['watershedAnnualPrecip']
+                    }
+                else:
+                    poi_ratio_raw = db.get_poi_size_and_mean_precip(cda_session_id = id, poi_id = poi_id)
                 poi_ratio_data = calculate_cda_ratio(poi_ratio_raw, gage_ratio_raw)
                 poi_ratio_data['poiId'] = poi_id
                 poi_threshold = poi_threshold | poi_ratio_data
