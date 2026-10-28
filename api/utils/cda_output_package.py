@@ -258,7 +258,7 @@ def thresholds_table_output(cda_session):
             ):
                 row["minimumBypassFlow"] = None
             if (
-                "minimumBypassFlowRegional" in row
+                "maximumCumulativeDiversion" in row and "maximumCumulativeDiversionRegional" in row
                 and row["maximumCumulativeDiversion"]
                 == row["maximumCumulativeDiversionRegional"]
             ):
