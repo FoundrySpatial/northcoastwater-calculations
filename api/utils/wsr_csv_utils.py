@@ -643,6 +643,10 @@ def validate_senior_diverter_csv(df, requires_cda):
     storage_cols = ["storage_season_start_month", "storage_season_start_day",
                     "storage_season_end_month", "storage_season_end_day"]
 
+    # Check if all applicaiton_numbers are unique
+    if(not df['application_number'].is_unique):
+        errors.append("All application_number fields must be unique")
+
     for index, row in df.iterrows():
         has_full_direct_div_season = has_full_row(row, direct_div_cols)
         has_full_storage_season = has_full_row(row, storage_cols)
